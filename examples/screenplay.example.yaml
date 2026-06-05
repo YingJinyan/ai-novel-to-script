@@ -31,7 +31,7 @@ adaptation_control:
 
 source:
   chapter_count: 3
-  total_characters: 1850
+  total_characters: 176
   chapters:
     - id: chapter_1
       order: 1

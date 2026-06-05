@@ -133,12 +133,14 @@ def validate_references(screenplay: dict) -> list[str]:
 def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> list[str]:
     """Verify evidence excerpts and hashes against the imported chapter text."""
     issues: list[str] = []
+    available_texts: list[str] = []
     for chapter in screenplay["source"]["chapters"]:
         chapter_id = chapter["id"]
         source_text = source_texts.get(chapter_id)
         if source_text is None:
             issues.append(f"source text is unavailable for chapter {chapter_id}")
             continue
+        available_texts.append(source_text)
         actual_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
         if actual_hash != chapter["content_sha256"]:
             issues.append(f"content hash does not match source text for chapter {chapter_id}")
@@ -155,6 +157,11 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
             issues.append(f"{event['id']} evidence range must end after it starts")
         elif source_text[start:end] != evidence["quote"]:
             issues.append(f"{event['id']} evidence quote does not match the source text range")
+
+    if len(available_texts) == len(screenplay["source"]["chapters"]):
+        actual_total = sum(len(text) for text in available_texts)
+        if actual_total != screenplay["source"]["total_characters"]:
+            issues.append("source.total_characters does not match the imported chapter texts")
 
     return issues
 

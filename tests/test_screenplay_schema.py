@@ -122,6 +122,14 @@ def test_rejects_source_text_when_content_hash_changes(screenplay: dict) -> None
     assert "content hash does not match source text for chapter chapter_1" in errors
 
 
+def test_rejects_incorrect_total_character_count(screenplay: dict) -> None:
+    screenplay["source"]["total_characters"] += 1
+
+    errors = validate_source_evidence(screenplay, load_example_source_texts())
+
+    assert "source.total_characters does not match the imported chapter texts" in errors
+
+
 def test_rejects_invent_event_action_when_author_forbids_it(screenplay: dict) -> None:
     screenplay["screenplay"]["scenes"][0]["traceability"]["adaptation_actions"].append(
         {
