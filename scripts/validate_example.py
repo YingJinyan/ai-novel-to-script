@@ -236,7 +236,7 @@ def build_quality_report(
         issues.append(
             {
                 "code": "critical_event_missing",
-                "severity": "warning",
+                "severity": "error",
                 "message": f"Critical event is not covered by any scene: {event_id}",
                 "related_ids": [event_id],
             }
@@ -288,6 +288,41 @@ def build_quality_report(
     }
 
 
+def validate_screenplay(screenplay: object, source_texts: dict[str, str]) -> dict:
+    """Return one safe structured report for valid or partially edited YAML."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    raw_schema_errors = sorted(
+        validator.iter_errors(screenplay), key=lambda error: list(error.path)
+    )
+    schema_errors = [
+        f"{'.'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
+        for error in raw_schema_errors
+    ]
+    if schema_errors:
+        return {
+            "passed": False,
+            "metrics": {},
+            "issues": [
+                {
+                    "code": "schema_validation_error",
+                    "severity": "error",
+                    "message": message,
+                    "related_ids": [],
+                }
+                for message in schema_errors
+            ],
+        }
+
+    reference_errors = validate_references(screenplay)
+    evidence_errors = validate_source_evidence(screenplay, source_texts)
+    return build_quality_report(
+        screenplay,
+        reference_errors=reference_errors,
+        evidence_errors=evidence_errors,
+    )
+
+
 def load_example_source_texts() -> dict[str, str]:
     source_dir = ROOT / "examples" / "source"
     return {
@@ -297,25 +332,8 @@ def load_example_source_texts() -> dict[str, str]:
 
 
 def main() -> None:
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     screenplay = yaml.safe_load(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(schema)
-    raw_schema_errors = sorted(
-        validator.iter_errors(screenplay), key=lambda error: list(error.path)
-    )
-    schema_errors = [
-        f"{'.'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in raw_schema_errors
-    ]
-
-    reference_errors = validate_references(screenplay)
-    evidence_errors = validate_source_evidence(screenplay, load_example_source_texts())
-    report = build_quality_report(
-        screenplay,
-        schema_errors=schema_errors,
-        reference_errors=reference_errors,
-        evidence_errors=evidence_errors,
-    )
+    report = validate_screenplay(screenplay, load_example_source_texts())
 
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["passed"]:

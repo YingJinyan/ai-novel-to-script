@@ -12,6 +12,7 @@ from scripts.validate_example import (
     build_quality_report,
     load_example_source_texts,
     validate_references,
+    validate_screenplay,
     validate_source_evidence,
 )
 
@@ -185,6 +186,7 @@ def test_quality_report_flags_missing_critical_event_and_scene_count(screenplay:
 
     report = build_quality_report(screenplay)
 
+    assert report["passed"] is False
     assert report["metrics"]["critical_event_coverage"] == 0.5
     assert report["metrics"]["target_scene_delta"] == -2
     assert {issue["code"] for issue in report["issues"]} == {
@@ -246,3 +248,34 @@ def test_invented_scene_cannot_declare_source_adaptation_actions(screenplay: dic
     errors = validate_references(screenplay)
 
     assert "scene_1 is invented but declares source adaptation actions" in errors
+
+
+def test_safe_validation_reports_deleted_required_field(screenplay: dict) -> None:
+    del screenplay["screenplay"]["scenes"][0]["traceability"]
+
+    report = validate_screenplay(screenplay, load_example_source_texts())
+
+    assert report["passed"] is False
+    assert report["metrics"] == {}
+    assert report["issues"][0]["code"] == "schema_validation_error"
+    assert "traceability" in report["issues"][0]["message"]
+
+
+def test_safe_validation_reports_wrong_field_type(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"] = "not-an-array"
+
+    report = validate_screenplay(screenplay, load_example_source_texts())
+
+    assert report["passed"] is False
+    assert report["metrics"] == {}
+    assert report["issues"][0]["code"] == "schema_validation_error"
+
+
+def test_safe_validation_reports_deleted_top_level_section(screenplay: dict) -> None:
+    del screenplay["adaptation_control"]
+
+    report = validate_screenplay(screenplay, load_example_source_texts())
+
+    assert report["passed"] is False
+    assert report["metrics"] == {}
+    assert report["issues"][0]["code"] == "schema_validation_error"
