@@ -54,11 +54,26 @@ examples/
 
 ## 当前状态
 
-项目初始化阶段。已完成项目定位、架构草案、交付路线和[竞品调研](docs/competitive-research.md)。
+项目初始化阶段。已完成项目定位、架构草案、交付路线、[竞品调研](docs/competitive-research.md)和[剧本 YAML Schema 设计](docs/yaml-schema.md)。
+
+验证示例剧本：
+
+```powershell
+py -3.10 -m pip install -r requirements-dev.txt
+py -3.10 scripts/validate_example.py
+```
 
 ## 原创功能说明
 
 本项目将自主实现小说章节解析、长文本改编工作流、剧本 YAML Schema、生成结果校验和编辑交互。后续引入的第三方库、框架与模型服务将在此处逐项列明用途和版本。
+
+## 当前第三方依赖
+
+| 依赖 | 用途 |
+| --- | --- |
+| `PyYAML` | 读取和生成 YAML |
+| `jsonschema` | 根据可执行 JSON Schema 验证剧本结构 |
+| `pytest` | 自动测试 Schema 和业务一致性规则 |
 
 ## License
 
