@@ -1,0 +1,185 @@
+schema_version: 1.0.0
+
+project:
+  id: project_rain_station
+  title: 雨夜末班车
+  logline: 一名记者追查失踪案时，在末班车站发现父亲留下的秘密线索。
+  genre:
+    - 悬疑
+    - 剧情
+  format: short_film
+  language: zh-CN
+  generation:
+    provider: local-curated-example
+    model: ""
+    mode: curated_demo
+    fallback_reason: ""
+
+adaptation_control:
+  fidelity: balanced
+  target_scene_count: 3
+  focus:
+    - suspense
+    - visual_action
+  must_keep_event_ids:
+    - event_letter_found
+    - event_station_meeting
+  allow_new_events: false
+  forbidden_changes:
+    - 不改变父亲失踪的事实
+    - 不新增超自然设定
+
+source:
+  chapter_count: 3
+  total_characters: 1850
+  chapters:
+    - id: chapter_1
+      order: 1
+      title: 雨中的信
+      summary: 记者林夏收到父亲失踪前寄出的信，信中要求她前往废弃车站。
+    - id: chapter_2
+      order: 2
+      title: 末班车站
+      summary: 林夏抵达车站，发现守站人陈默似乎知道父亲的秘密。
+    - id: chapter_3
+      order: 3
+      title: 没有发出的车票
+      summary: 陈默交出父亲留下的旧车票，林夏决定继续追查。
+
+story_bible:
+  premise: 林夏循着父亲留下的线索，在一夜之间重新理解父亲当年的选择。
+  characters:
+    - id: character_lin_xia
+      name: 林夏
+      aliases:
+        - 小夏
+      role: protagonist
+      description: 二十八岁的调查记者，敏锐、克制，不愿轻易相信他人。
+      goal: 找到父亲失踪的真相。
+    - id: character_chen_mo
+      name: 陈默
+      aliases: []
+      role: supporting
+      description: 废弃车站的守站人，沉默寡言，替林夏父亲保守秘密。
+      goal: 确认林夏已经准备好面对真相。
+  locations:
+    - id: location_lin_home
+      name: 林夏公寓
+      description: 狭小整洁，墙上贴满调查线索。
+    - id: location_old_station
+      name: 废弃车站
+      description: 雨夜中的旧站台，顶灯闪烁，铁轨没入黑暗。
+
+narrative_events:
+  - id: event_letter_found
+    chapter_id: chapter_1
+    summary: 林夏发现父亲留下的信，决定前往废弃车站。
+    importance: critical
+    evidence_excerpt: 信末只有一句话：去末班车停靠过的地方。
+  - id: event_station_meeting
+    chapter_id: chapter_2
+    summary: 林夏在车站遇见陈默并质问父亲的下落。
+    importance: critical
+    evidence_excerpt: 守站人没有问她是谁，只说，你终于来了。
+  - id: event_ticket_handover
+    chapter_id: chapter_3
+    summary: 陈默交出旧车票，林夏获得下一条线索。
+    importance: major
+    evidence_excerpt: 那张没有发出的车票背面，写着另一个地名。
+
+screenplay:
+  synopsis: 林夏根据失踪父亲留下的信来到废弃车站，从守站人陈默手中获得一张指向真相的旧车票。
+  scenes:
+    - id: scene_1
+      order: 1
+      heading:
+        int_ext: INT
+        location_id: location_lin_home
+        time_of_day: 夜
+      purpose: 交代林夏的目标，并用父亲的信推动她前往车站。
+      character_ids:
+        - character_lin_xia
+      beats:
+        - type: action
+          text: 雨水敲打窗户。林夏从一叠退回的信件中抽出一个发黄信封。
+        - type: narration
+          text: 信封上的字迹属于失踪三年的父亲。
+        - type: action
+          text: 她抓起外套，将信塞进口袋。
+      traceability:
+        origin: source_adaptation
+        source_chapter_ids:
+          - chapter_1
+        source_event_ids:
+          - event_letter_found
+        evidence:
+          - chapter_id: chapter_1
+            quote: 信末只有一句话：去末班车停靠过的地方。
+        adaptation_actions:
+          - type: condense
+            description: 将林夏阅读整封信的过程压缩为发现信和立即出发。
+            rationale: 用可视化动作快速建立目标并推动剧情。
+    - id: scene_2
+      order: 2
+      heading:
+        int_ext: EXT
+        location_id: location_old_station
+        time_of_day: 深夜
+      purpose: 让林夏与陈默发生正面冲突，揭示陈默掌握线索。
+      character_ids:
+        - character_lin_xia
+        - character_chen_mo
+      beats:
+        - type: action
+          text: 顶灯闪烁。陈默站在站台尽头，像是早已等候多时。
+        - type: dialogue
+          character_id: character_lin_xia
+          parenthetical: 压住怒意
+          text: 我父亲最后见的人，是你。
+        - type: dialogue
+          character_id: character_chen_mo
+          text: 他让我等到你愿意来。
+      traceability:
+        origin: source_adaptation
+        source_chapter_ids:
+          - chapter_2
+        source_event_ids:
+          - event_station_meeting
+        evidence:
+          - chapter_id: chapter_2
+            quote: 守站人没有问她是谁，只说，你终于来了。
+        adaptation_actions:
+          - type: rewrite
+            description: 将叙述性的相遇改写为正面对白冲突。
+            rationale: 强化戏剧张力并交代双方关系。
+    - id: scene_3
+      order: 3
+      heading:
+        int_ext: EXT
+        location_id: location_old_station
+        time_of_day: 黎明前
+      purpose: 交付下一条线索，并以林夏主动继续调查结束短片。
+      character_ids:
+        - character_lin_xia
+        - character_chen_mo
+      beats:
+        - type: action
+          text: 陈默从售票窗口下方取出一张没有日期的旧车票。
+        - type: dialogue
+          character_id: character_chen_mo
+          text: 他没让我告诉你答案，只让我把路交给你。
+        - type: action
+          text: 林夏接过车票。远处，一盏废弃多年的信号灯突然亮起。
+      traceability:
+        origin: source_adaptation
+        source_chapter_ids:
+          - chapter_3
+        source_event_ids:
+          - event_ticket_handover
+        evidence:
+          - chapter_id: chapter_3
+            quote: 那张没有发出的车票背面，写着另一个地名。
+        adaptation_actions:
+          - type: retain
+            description: 保留陈默交出旧车票的关键事件。
+            rationale: 该事件为后续调查提供明确钩子。

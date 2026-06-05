@@ -1,0 +1,657 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/YingJinyan/ai-novel-to-script/schema/screenplay.schema.json",
+  "title": "Traceable Novel Adaptation Screenplay",
+  "description": "A structured screenplay with author controls, source traceability, coverage mapping, and quality gates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project",
+    "adaptation_control",
+    "source",
+    "story_bible",
+    "narrative_events",
+    "screenplay"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "project": {
+      "$ref": "#/$defs/project"
+    },
+    "adaptation_control": {
+      "$ref": "#/$defs/adaptationControl"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "story_bible": {
+      "$ref": "#/$defs/storyBible"
+    },
+    "narrative_events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/narrativeEvent"
+      }
+    },
+    "screenplay": {
+      "$ref": "#/$defs/screenplay"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "logline",
+        "genre",
+        "format",
+        "language",
+        "generation"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "logline": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "genre": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "format": {
+          "enum": [
+            "short_film",
+            "short_series",
+            "feature_film",
+            "stage_play"
+          ]
+        },
+        "language": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "mode"
+          ],
+          "properties": {
+            "provider": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "model": {
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "qiniu_ai",
+                "compatible_ai",
+                "local_rules",
+                "curated_demo"
+              ]
+            },
+            "fallback_reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "adaptationControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fidelity",
+        "target_scene_count",
+        "focus",
+        "must_keep_event_ids",
+        "allow_new_events",
+        "forbidden_changes"
+      ],
+      "properties": {
+        "fidelity": {
+          "enum": [
+            "faithful",
+            "balanced",
+            "free"
+          ]
+        },
+        "target_scene_count": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 100
+        },
+        "focus": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "conflict",
+              "dialogue",
+              "suspense",
+              "emotion",
+              "visual_action"
+            ]
+          }
+        },
+        "must_keep_event_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "allow_new_events": {
+          "type": "boolean"
+        },
+        "forbidden_changes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chapter_count",
+        "total_characters",
+        "chapters"
+      ],
+      "properties": {
+        "chapter_count": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "total_characters": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "chapters": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/chapter"
+          }
+        }
+      }
+    },
+    "chapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order",
+        "title",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "storyBible": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "premise",
+        "characters",
+        "locations"
+      ],
+      "properties": {
+        "premise": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "characters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/character"
+          }
+        },
+        "locations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/location"
+          }
+        }
+      }
+    },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "role",
+        "description",
+        "goal"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "role": {
+          "enum": [
+            "protagonist",
+            "antagonist",
+            "supporting",
+            "minor"
+          ]
+        },
+        "description": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "goal": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "description": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "narrativeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "chapter_id",
+        "summary",
+        "importance",
+        "evidence_excerpt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "chapter_id": {
+          "$ref": "#/$defs/id"
+        },
+        "summary": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "importance": {
+          "enum": [
+            "critical",
+            "major",
+            "minor"
+          ]
+        },
+        "evidence_excerpt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "screenplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "synopsis",
+        "scenes"
+      ],
+      "properties": {
+        "synopsis": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "scenes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/scene"
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order",
+        "heading",
+        "purpose",
+        "character_ids",
+        "beats",
+        "traceability"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heading": {
+          "$ref": "#/$defs/sceneHeading"
+        },
+        "purpose": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "character_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "beats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/beat"
+          }
+        },
+        "traceability": {
+          "$ref": "#/$defs/traceability"
+        }
+      }
+    },
+    "sceneHeading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "int_ext",
+        "location_id",
+        "time_of_day"
+      ],
+      "properties": {
+        "int_ext": {
+          "enum": [
+            "INT",
+            "EXT",
+            "INT_EXT"
+          ]
+        },
+        "location_id": {
+          "$ref": "#/$defs/id"
+        },
+        "time_of_day": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "beat": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/actionBeat"
+        },
+        {
+          "$ref": "#/$defs/dialogueBeat"
+        },
+        {
+          "$ref": "#/$defs/narrationBeat"
+        },
+        {
+          "$ref": "#/$defs/transitionBeat"
+        }
+      ]
+    },
+    "actionBeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "action"
+        },
+        "text": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "dialogueBeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "character_id",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "dialogue"
+        },
+        "character_id": {
+          "$ref": "#/$defs/id"
+        },
+        "parenthetical": {
+          "type": "string"
+        },
+        "text": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "narrationBeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "narration"
+        },
+        "text": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "transitionBeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "transition"
+        },
+        "text": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "traceability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "source_chapter_ids",
+        "source_event_ids",
+        "evidence",
+        "adaptation_actions"
+      ],
+      "properties": {
+        "origin": {
+          "enum": [
+            "source_adaptation",
+            "invented"
+          ]
+        },
+        "source_chapter_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "source_event_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "adaptation_actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/adaptationAction"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "source_adaptation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source_chapter_ids": {
+                "minItems": 1
+              },
+              "source_event_ids": {
+                "minItems": 1
+              },
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "source_chapter_ids": {
+                "maxItems": 0
+              },
+              "source_event_ids": {
+                "maxItems": 0
+              },
+              "evidence": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chapter_id",
+        "quote"
+      ],
+      "properties": {
+        "chapter_id": {
+          "$ref": "#/$defs/id"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "adaptationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "description",
+        "rationale"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "retain",
+            "condense",
+            "merge",
+            "reorder",
+            "rewrite",
+            "invent"
+          ]
+        },
+        "description": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "rationale": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    }
+  }
+}
