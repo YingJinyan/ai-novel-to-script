@@ -189,5 +189,60 @@ def test_quality_report_flags_missing_critical_event_and_scene_count(screenplay:
     assert report["metrics"]["target_scene_delta"] == -2
     assert {issue["code"] for issue in report["issues"]} == {
         "critical_event_missing",
+        "must_keep_event_missing",
         "target_scene_count_mismatch",
     }
+
+
+def test_quality_report_includes_validation_errors_and_fails(screenplay: dict) -> None:
+    report = build_quality_report(
+        screenplay,
+        schema_errors=["screenplay.scenes: [] should be non-empty"],
+        reference_errors=["scene_1 references unknown location"],
+        evidence_errors=["event_letter_found evidence quote does not match"],
+    )
+
+    assert report["passed"] is False
+    assert {issue["code"] for issue in report["issues"]} >= {
+        "schema_validation_error",
+        "reference_validation_error",
+        "evidence_validation_error",
+    }
+
+
+def test_quality_report_handles_empty_scenes(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"] = []
+
+    report = build_quality_report(
+        screenplay,
+        schema_errors=["screenplay.scenes: [] should be non-empty"],
+    )
+
+    assert report["passed"] is False
+    assert report["metrics"]["source_traceability_coverage"] == 0.0
+    assert report["metrics"]["invented_scene_ratio"] == 0.0
+
+
+def test_invented_scene_cannot_declare_source_adaptation_actions(screenplay: dict) -> None:
+    screenplay["adaptation_control"]["allow_new_events"] = True
+    screenplay["screenplay"]["scenes"][0]["traceability"] = {
+        "origin": "invented",
+        "source_chapter_ids": [],
+        "source_event_ids": [],
+        "adaptation_actions": [
+            {
+                "type": "invent_event",
+                "description": "新增剧情事件。",
+                "rationale": "测试新增场次。",
+            },
+            {
+                "type": "retain",
+                "description": "不合理的来源改编动作。",
+                "rationale": "测试语义冲突。",
+            },
+        ],
+    }
+
+    errors = validate_references(screenplay)
+
+    assert "scene_1 is invented but declares source adaptation actions" in errors

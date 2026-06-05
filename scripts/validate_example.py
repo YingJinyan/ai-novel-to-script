@@ -116,6 +116,11 @@ def validate_references(screenplay: dict) -> list[str]:
         action_types = {action["type"] for action in traceability["adaptation_actions"]}
         if traceability["origin"] == "invented" and "invent_event" not in action_types:
             issues.append(f"{scene['id']} is invented but has no invent_event adaptation action")
+        source_only_actions = {"retain", "condense", "merge", "reorder", "rewrite"}
+        if traceability["origin"] == "invented" and action_types & source_only_actions:
+            issues.append(
+                f"{scene['id']} is invented but declares source adaptation actions"
+            )
         if (
             "invent_event" in action_types
             and not screenplay["adaptation_control"]["allow_new_events"]
@@ -166,8 +171,16 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
     return issues
 
 
-def build_quality_report(screenplay: dict) -> dict:
+def build_quality_report(
+    screenplay: dict,
+    schema_errors: list[str] | None = None,
+    reference_errors: list[str] | None = None,
+    evidence_errors: list[str] | None = None,
+) -> dict:
     """Compute review metrics from the current screenplay instead of storing stale values."""
+    schema_errors = schema_errors or []
+    reference_errors = reference_errors or []
+    evidence_errors = evidence_errors or []
     chapters = screenplay["source"]["chapters"]
     events = screenplay["narrative_events"]
     scenes = screenplay["screenplay"]["scenes"]
@@ -192,12 +205,48 @@ def build_quality_report(screenplay: dict) -> dict:
 
     all_event_ids = {event["id"] for event in events}
     all_chapter_ids = {chapter["id"] for chapter in chapters}
-    issues = []
+    issues = [
+        {
+            "code": "schema_validation_error",
+            "severity": "error",
+            "message": message,
+            "related_ids": [],
+        }
+        for message in schema_errors
+    ]
+    issues.extend(
+        {
+            "code": "reference_validation_error",
+            "severity": "error",
+            "message": message,
+            "related_ids": [],
+        }
+        for message in reference_errors
+    )
+    issues.extend(
+        {
+            "code": "evidence_validation_error",
+            "severity": "error",
+            "message": message,
+            "related_ids": [],
+        }
+        for message in evidence_errors
+    )
     for event_id in sorted(critical_event_ids - covered_event_ids):
         issues.append(
             {
                 "code": "critical_event_missing",
                 "severity": "warning",
+                "message": f"Critical event is not covered by any scene: {event_id}",
+                "related_ids": [event_id],
+            }
+        )
+    for event_id in sorted(must_keep_ids - covered_event_ids):
+        issues.append(
+            {
+                "code": "must_keep_event_missing",
+                "severity": "error",
+                "message": f"Must-keep event is not covered by any scene: {event_id}",
                 "related_ids": [event_id],
             }
         )
@@ -207,22 +256,32 @@ def build_quality_report(screenplay: dict) -> dict:
             {
                 "code": "target_scene_count_mismatch",
                 "severity": "info",
+                "message": (
+                    f"Expected {target_scene_count} scenes but found {len(scenes)}."
+                ),
                 "related_ids": [],
             }
         )
 
+    scene_count = len(scenes)
+    traced_scene_count = sum(
+        scene["traceability"]["origin"] == "source_adaptation"
+        and bool(scene["traceability"]["source_event_ids"])
+        for scene in scenes
+    )
     return {
+        "passed": not any(issue["severity"] == "error" for issue in issues),
         "metrics": {
             "chapter_coverage": ratio(covered_chapter_ids, all_chapter_ids),
             "event_coverage": ratio(covered_event_ids, all_event_ids),
             "critical_event_coverage": ratio(covered_event_ids, critical_event_ids),
             "must_keep_coverage": ratio(covered_event_ids, must_keep_ids),
-            "traceability_coverage": round(
-                sum(bool(scene["traceability"]["source_event_ids"]) or scene["traceability"]["origin"] == "invented" for scene in scenes)
-                / len(scenes),
-                3,
+            "source_traceability_coverage": (
+                round(traced_scene_count / scene_count, 3) if scene_count else 0.0
             ),
-            "invented_scene_ratio": round(len(invented_scenes) / len(scenes), 3),
+            "invented_scene_ratio": (
+                round(len(invented_scenes) / scene_count, 3) if scene_count else 0.0
+            ),
             "target_scene_delta": len(scenes) - target_scene_count,
         },
         "issues": issues,
@@ -241,24 +300,27 @@ def main() -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     screenplay = yaml.safe_load(EXAMPLE_PATH.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
-    schema_errors = sorted(validator.iter_errors(screenplay), key=lambda error: list(error.path))
-
-    if schema_errors:
-        for error in schema_errors:
-            path = ".".join(str(part) for part in error.absolute_path) or "<root>"
-            print(f"{path}: {error.message}")
-        raise SystemExit(1)
+    raw_schema_errors = sorted(
+        validator.iter_errors(screenplay), key=lambda error: list(error.path)
+    )
+    schema_errors = [
+        f"{'.'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
+        for error in raw_schema_errors
+    ]
 
     reference_errors = validate_references(screenplay)
     evidence_errors = validate_source_evidence(screenplay, load_example_source_texts())
-    business_errors = reference_errors + evidence_errors
-    if business_errors:
-        for error in business_errors:
-            print(f"business rule: {error}")
-        raise SystemExit(1)
+    report = build_quality_report(
+        screenplay,
+        schema_errors=schema_errors,
+        reference_errors=reference_errors,
+        evidence_errors=evidence_errors,
+    )
 
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["passed"]:
+        raise SystemExit(1)
     print(f"Valid structure and references: {EXAMPLE_PATH.relative_to(ROOT)}")
-    print(json.dumps(build_quality_report(screenplay), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

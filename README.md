@@ -61,6 +61,7 @@ examples/
 ```powershell
 py -3.10 -m pip install -r requirements-dev.txt
 py -3.10 scripts/validate_example.py
+py -3.10 -m pytest -q
 ```
 
 ## 原创功能说明
