@@ -64,6 +64,15 @@ py -3.10 scripts/validate_example.py
 py -3.10 -m pytest -q
 ```
 
+启动后端 API：
+
+```powershell
+py -3.10 -m pip install -r requirements.txt
+py -3.10 -m uvicorn backend.main:app --reload
+```
+
+启动后可访问 `http://127.0.0.1:8000/docs` 查看接口文档。
+
 ## 原创功能说明
 
 本项目将自主实现小说章节解析、长文本改编工作流、剧本 YAML Schema、生成结果校验和编辑交互。后续引入的第三方库、框架与模型服务将在此处逐项列明用途和版本。
@@ -75,6 +84,9 @@ py -3.10 -m pytest -q
 | `PyYAML` | 读取和生成 YAML |
 | `jsonschema` | 根据可执行 JSON Schema 验证剧本结构 |
 | `pytest` | 自动测试 Schema 和业务一致性规则 |
+| `FastAPI`、`Uvicorn` | 提供本地 HTTP API 与交互式接口文档 |
+| `Pydantic` | 定义和验证 API 请求响应模型 |
+| `httpx` | 支持 FastAPI 接口测试，后续用于模型服务请求 |
 
 ## License
 
