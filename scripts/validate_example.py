@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import yaml
@@ -14,7 +15,7 @@ SCHEMA_PATH = ROOT / "schema" / "screenplay.schema.json"
 EXAMPLE_PATH = ROOT / "examples" / "screenplay.example.yaml"
 
 
-def find_duplicates(values: list[str]) -> set[str]:
+def find_duplicates(values: list) -> set:
     seen: set[str] = set()
     duplicates: set[str] = set()
     for value in values:
@@ -37,8 +38,6 @@ def validate_references(screenplay: dict) -> list[str]:
     event_ids = {event["id"] for event in events}
     character_ids = {character["id"] for character in characters}
     location_ids = {location["id"] for location in locations}
-    scene_ids = {scene["id"] for scene in scenes}
-
     id_groups: dict[str, list[str]] = {
         "chapter": [item["id"] for item in chapters],
         "event": [item["id"] for item in events],
@@ -106,28 +105,129 @@ def validate_references(screenplay: dict) -> list[str]:
             issues.append(
                 f"{scene['id']} source chapters omit the chapter for a traced event: {chapter_id}"
             )
-        for evidence in traceability["evidence"]:
-            if evidence["chapter_id"] not in chapter_ids:
-                issues.append(
-                    f"{scene['id']} evidence references unknown chapter {evidence['chapter_id']}"
-                )
-            elif evidence["chapter_id"] not in source_chapter_ids:
-                issues.append(
-                    f"{scene['id']} evidence chapter is not listed in source_chapter_ids: "
-                    f"{evidence['chapter_id']}"
-                )
+        for chapter_id in sorted(source_chapter_ids - event_chapter_ids):
+            issues.append(
+                f"{scene['id']} lists a source chapter without a traced event: {chapter_id}"
+            )
         covered_event_ids.update(source_event_ids)
 
         if traceability["origin"] == "invented" and not screenplay["adaptation_control"]["allow_new_events"]:
             issues.append(f"{scene['id']} is invented but adaptation_control.allow_new_events is false")
         action_types = {action["type"] for action in traceability["adaptation_actions"]}
-        if traceability["origin"] == "invented" and "invent" not in action_types:
-            issues.append(f"{scene['id']} is invented but has no invent adaptation action")
+        if traceability["origin"] == "invented" and "invent_event" not in action_types:
+            issues.append(f"{scene['id']} is invented but has no invent_event adaptation action")
+        if (
+            "invent_event" in action_types
+            and not screenplay["adaptation_control"]["allow_new_events"]
+        ):
+            issues.append(
+                f"{scene['id']} invents a story event but adaptation_control.allow_new_events is false"
+            )
 
     for event_id in sorted(must_keep_ids - covered_event_ids):
         issues.append(f"must-keep event is not covered by any scene: {event_id}")
 
     return issues
+
+
+def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> list[str]:
+    """Verify evidence excerpts and hashes against the imported chapter text."""
+    issues: list[str] = []
+    for chapter in screenplay["source"]["chapters"]:
+        chapter_id = chapter["id"]
+        source_text = source_texts.get(chapter_id)
+        if source_text is None:
+            issues.append(f"source text is unavailable for chapter {chapter_id}")
+            continue
+        actual_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+        if actual_hash != chapter["content_sha256"]:
+            issues.append(f"content hash does not match source text for chapter {chapter_id}")
+
+    for event in screenplay["narrative_events"]:
+        chapter_id = event["chapter_id"]
+        source_text = source_texts.get(chapter_id)
+        if source_text is None:
+            continue
+        evidence = event["evidence"]
+        start = evidence["start_char"]
+        end = evidence["end_char"]
+        if end <= start:
+            issues.append(f"{event['id']} evidence range must end after it starts")
+        elif source_text[start:end] != evidence["quote"]:
+            issues.append(f"{event['id']} evidence quote does not match the source text range")
+
+    return issues
+
+
+def build_quality_report(screenplay: dict) -> dict:
+    """Compute review metrics from the current screenplay instead of storing stale values."""
+    chapters = screenplay["source"]["chapters"]
+    events = screenplay["narrative_events"]
+    scenes = screenplay["screenplay"]["scenes"]
+    covered_event_ids = {
+        event_id
+        for scene in scenes
+        for event_id in scene["traceability"]["source_event_ids"]
+    }
+    covered_chapter_ids = {
+        chapter_id
+        for scene in scenes
+        for chapter_id in scene["traceability"]["source_chapter_ids"]
+    }
+    critical_event_ids = {event["id"] for event in events if event["importance"] == "critical"}
+    must_keep_ids = set(screenplay["adaptation_control"]["must_keep_event_ids"])
+    invented_scenes = [
+        scene for scene in scenes if scene["traceability"]["origin"] == "invented"
+    ]
+
+    def ratio(covered: set, total: set) -> float:
+        return round(len(covered & total) / len(total), 3) if total else 1.0
+
+    all_event_ids = {event["id"] for event in events}
+    all_chapter_ids = {chapter["id"] for chapter in chapters}
+    issues = []
+    for event_id in sorted(critical_event_ids - covered_event_ids):
+        issues.append(
+            {
+                "code": "critical_event_missing",
+                "severity": "warning",
+                "related_ids": [event_id],
+            }
+        )
+    target_scene_count = screenplay["adaptation_control"]["target_scene_count"]
+    if len(scenes) != target_scene_count:
+        issues.append(
+            {
+                "code": "target_scene_count_mismatch",
+                "severity": "info",
+                "related_ids": [],
+            }
+        )
+
+    return {
+        "metrics": {
+            "chapter_coverage": ratio(covered_chapter_ids, all_chapter_ids),
+            "event_coverage": ratio(covered_event_ids, all_event_ids),
+            "critical_event_coverage": ratio(covered_event_ids, critical_event_ids),
+            "must_keep_coverage": ratio(covered_event_ids, must_keep_ids),
+            "traceability_coverage": round(
+                sum(bool(scene["traceability"]["source_event_ids"]) or scene["traceability"]["origin"] == "invented" for scene in scenes)
+                / len(scenes),
+                3,
+            ),
+            "invented_scene_ratio": round(len(invented_scenes) / len(scenes), 3),
+            "target_scene_delta": len(scenes) - target_scene_count,
+        },
+        "issues": issues,
+    }
+
+
+def load_example_source_texts() -> dict[str, str]:
+    source_dir = ROOT / "examples" / "source"
+    return {
+        path.stem: path.read_text(encoding="utf-8")
+        for path in sorted(source_dir.glob("chapter_*.txt"))
+    }
 
 
 def main() -> None:
@@ -143,12 +243,15 @@ def main() -> None:
         raise SystemExit(1)
 
     reference_errors = validate_references(screenplay)
-    if reference_errors:
-        for error in reference_errors:
+    evidence_errors = validate_source_evidence(screenplay, load_example_source_texts())
+    business_errors = reference_errors + evidence_errors
+    if business_errors:
+        for error in business_errors:
             print(f"business rule: {error}")
         raise SystemExit(1)
 
     print(f"Valid structure and references: {EXAMPLE_PATH.relative_to(ROOT)}")
+    print(json.dumps(build_quality_report(screenplay), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

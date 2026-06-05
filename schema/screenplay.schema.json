@@ -209,7 +209,8 @@
         "id",
         "order",
         "title",
-        "summary"
+        "summary",
+        "content_sha256"
       ],
       "properties": {
         "id": {
@@ -224,6 +225,10 @@
         },
         "summary": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },
@@ -323,7 +328,7 @@
         "chapter_id",
         "summary",
         "importance",
-        "evidence_excerpt"
+        "evidence"
       ],
       "properties": {
         "id": {
@@ -342,10 +347,8 @@
             "minor"
           ]
         },
-        "evidence_excerpt": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
+        "evidence": {
+          "$ref": "#/$defs/eventEvidence"
         }
       }
     },
@@ -532,7 +535,6 @@
         "origin",
         "source_chapter_ids",
         "source_event_ids",
-        "evidence",
         "adaptation_actions"
       ],
       "properties": {
@@ -554,12 +556,6 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/id"
-          }
-        },
-        "evidence": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/evidence"
           }
         },
         "adaptation_actions": {
@@ -586,9 +582,6 @@
               },
               "source_event_ids": {
                 "minItems": 1
-              },
-              "evidence": {
-                "minItems": 1
               }
             }
           },
@@ -599,30 +592,33 @@
               },
               "source_event_ids": {
                 "maxItems": 0
-              },
-              "evidence": {
-                "maxItems": 0
               }
             }
           }
         }
       ]
     },
-    "evidence": {
+    "eventEvidence": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "chapter_id",
-        "quote"
+        "quote",
+        "start_char",
+        "end_char"
       ],
       "properties": {
-        "chapter_id": {
-          "$ref": "#/$defs/id"
-        },
         "quote": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "start_char": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_char": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -642,7 +638,8 @@
             "merge",
             "reorder",
             "rewrite",
-            "invent"
+            "invent_detail",
+            "invent_event"
           ]
         },
         "description": {
