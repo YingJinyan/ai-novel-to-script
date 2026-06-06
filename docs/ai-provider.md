@@ -15,11 +15,10 @@
 
 ```powershell
 $env:QINIU_AI_API_KEY="你的 API Key"
-$env:QINIU_AI_MODEL="你在七牛选择的模型名"
 py -3.10 -m uvicorn backend.main:app --reload
 ```
 
-密钥只由后端读取。状态接口仅返回是否配置、模型名和服务地址，不返回密钥。
+密钥只由后端读取。系统通过官方 `/v1/models` 接口读取当前账号可用模型，前端只接收模型 ID 列表，并允许用户选择本次生成使用的模型。可选环境变量 `QINIU_AI_MODEL` 用于设置默认模型。状态与模型接口都不会返回密钥。
 
 ## 为什么采用“确定性骨架 + AI 受限润色”
 

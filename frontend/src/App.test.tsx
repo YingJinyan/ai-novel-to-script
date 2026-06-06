@@ -64,6 +64,7 @@ const generationPayload = {
 
 const qiniuStatus = {
   provider: "qiniu-ai",
+  credentials_configured: false,
   configured: false,
   model: "",
   base_url: "https://api.qnaigc.com/v1",
@@ -73,11 +74,19 @@ const qiniuStatus = {
 function mockApi(
   projectResponses: Array<Response | Error>,
   status = qiniuStatus,
+  models: string[] = [],
 ) {
   let index = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     if (String(input).includes("/providers/qiniu/status")) {
       return new Response(JSON.stringify(status), { status: 200 });
+    }
+    if (String(input).includes("/providers/qiniu/models")) {
+      return new Response(JSON.stringify({
+        provider: "qiniu-ai",
+        selected_model: status.model,
+        models,
+      }), { status: 200 });
     }
     const response = projectResponses[index++];
     if (response instanceof Error) throw response;
@@ -194,7 +203,8 @@ describe("workbench", () => {
         new Response(JSON.stringify(parsePayload), { status: 200 }),
         new Response(JSON.stringify(generationPayload), { status: 200 }),
       ],
-      { ...qiniuStatus, configured: true, model: "configured-model" },
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "configured-model" },
+      ["configured-model", "second-model"],
     );
     render(<App />);
 
@@ -208,6 +218,12 @@ describe("workbench", () => {
       "/api/v1/projects/generate-ai",
       expect.objectContaining({ method: "POST" }),
     );
+    const aiRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/projects/generate-ai")
+    );
+    expect(JSON.parse(String(aiRequest?.[1]?.body))).toMatchObject({
+      model: "configured-model",
+    });
   });
 
   it("clears an existing result when the generation mode changes", async () => {
@@ -216,7 +232,8 @@ describe("workbench", () => {
         new Response(JSON.stringify(parsePayload), { status: 200 }),
         new Response(JSON.stringify(generationPayload), { status: 200 }),
       ],
-      { ...qiniuStatus, configured: true, model: "configured-model" },
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "configured-model" },
+      ["configured-model"],
     );
     render(<App />);
 
@@ -227,6 +244,6 @@ describe("workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: /七牛 AI configured-model/ }));
 
     expect(screen.queryByRole("button", { name: "下载剧本 YAML" })).not.toBeInTheDocument();
-    expect(screen.getByText("七牛 AI 受限润色模式")).toBeInTheDocument();
+    expect(screen.getByText("七牛 AI · configured-model")).toBeInTheDocument();
   });
 });

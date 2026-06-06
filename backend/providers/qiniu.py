@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -45,6 +46,13 @@ class QiniuSettings:
     @property
     def configured(self) -> bool:
         return bool(self.api_key and self.model and self.base_url)
+
+    @property
+    def credentials_configured(self) -> bool:
+        return bool(self.api_key and self.base_url)
+
+    def with_model(self, model: str) -> "QiniuSettings":
+        return replace(self, model=model.strip())
 
 
 class QiniuClient:
@@ -109,3 +117,55 @@ class QiniuClient:
                 "七牛 AI 返回的 JSON 根节点必须是对象。",
             )
         return parsed
+
+    def list_models(self) -> list[str]:
+        """Return model IDs available to the configured Qiniu account."""
+        if not self.settings.credentials_configured:
+            raise QiniuAIError(
+                "qiniu_provider_not_configured",
+                "七牛 AI 未配置。请设置 QINIU_AI_API_KEY。",
+            )
+
+        client = self._http_client or httpx.Client(timeout=self.settings.timeout_seconds)
+        should_close = self._http_client is None
+        try:
+            response = client.get(
+                f"{self.settings.base_url}/models",
+                headers={"Authorization": f"Bearer {self.settings.api_key}"},
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise QiniuAIError("qiniu_provider_timeout", "七牛 AI 模型列表请求超时。") from exc
+        except httpx.HTTPStatusError as exc:
+            raise QiniuAIError(
+                "qiniu_provider_http_error",
+                f"七牛 AI 模型列表返回 HTTP {exc.response.status_code}。",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise QiniuAIError("qiniu_provider_connection_error", "无法连接七牛 AI。") from exc
+        finally:
+            if should_close:
+                client.close()
+
+        try:
+            data = response.json()["data"]
+            model_ids = sorted(
+                {
+                    item["id"].strip()
+                    for item in data
+                    if isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item["id"].strip()
+                }
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise QiniuAIError(
+                "qiniu_provider_invalid_response",
+                "七牛 AI 未返回可解析的模型列表。",
+            ) from exc
+        if not model_ids:
+            raise QiniuAIError(
+                "qiniu_provider_invalid_response",
+                "七牛 AI 返回的模型列表为空。",
+            )
+        return model_ids

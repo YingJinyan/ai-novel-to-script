@@ -81,8 +81,15 @@ export interface GenerationResponse {
 
 export interface ProviderStatus {
   provider: string;
+  credentials_configured: boolean;
   configured: boolean;
   model: string;
   base_url: string;
   mode: string;
+}
+
+export interface ProviderModels {
+  provider: string;
+  selected_model: string;
+  models: string[];
 }
