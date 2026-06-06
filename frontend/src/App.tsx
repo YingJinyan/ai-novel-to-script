@@ -53,7 +53,7 @@ const METRIC_LABELS: Record<string, string> = {
   must_keep_coverage: "必保事件覆盖率",
   source_traceability_coverage: "来源可追溯率",
   invented_scene_ratio: "新增场次比例",
-  target_scene_delta: "目标场次数差值",
+  target_scene_delta: "场次数要求偏差",
 };
 const RECOMMENDED_QINIU_MODELS = [
   "deepseek-v3",
