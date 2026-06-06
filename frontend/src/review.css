@@ -91,6 +91,45 @@
   grid-column: 1 / -1;
 }
 
+.yaml-view textarea {
+  background: #0c1d2b;
+  border: 0;
+  color: #d9e2df;
+  font: 11px/1.65 Consolas, monospace;
+  min-height: 520px;
+  padding: 20px;
+  resize: vertical;
+  width: 100%;
+}
+
+.yaml-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.yaml-actions span {
+  font-size: 10px;
+}
+
+.yaml-pass {
+  color: #287046;
+}
+
+.yaml-pending {
+  color: #a06d21;
+}
+
+.tabs b.pending,
+.gate.pending {
+  color: #a06d21;
+}
+
+.gate.pending {
+  background: #fff7e7;
+}
+
 .source-panel textarea:disabled,
 .generate-box input:disabled {
   cursor: wait;
