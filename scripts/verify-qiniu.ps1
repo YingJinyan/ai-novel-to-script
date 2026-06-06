@@ -4,6 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "import-qiniu-config.ps1")
 $arguments = @("-3.10", "-m", "scripts.verify_qiniu")
 if ($Model.Trim()) {
     $arguments += @("--model", $Model.Trim())

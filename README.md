@@ -102,6 +102,14 @@ py -3.10 -m uvicorn backend.main:app --reload
 
 页面会通过后端安全读取七牛 `/v1/models` 返回的可用模型，用户可直接选择。系统优先推荐适合结构化文本改编的模型，并标记可能较慢的推理模型与当前任务不推荐的视觉模型。也可选填 `QINIU_AI_MODEL` 作为默认模型。不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
 
+Windows 本机开发时，也可以只配置一次并由启动脚本自动读取：
+
+```powershell
+.\scripts\configure-qiniu.ps1 -Model deepseek-v3
+```
+
+脚本会隐藏输入，并使用 Windows 当前用户的 DPAPI 加密保存到被 Git 忽略的 `.local` 目录。加密配置只能由同一台电脑上的当前 Windows 用户解密；网页、Git 仓库和其他用户均无法读取。服务器部署时不要复制该文件，应在服务器后台配置环境变量。
+
 在设置密钥的同一个 PowerShell 窗口中执行一次真实验收：
 
 ```powershell

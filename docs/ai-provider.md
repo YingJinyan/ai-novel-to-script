@@ -20,6 +20,8 @@ py -3.10 -m uvicorn backend.main:app --reload
 
 密钥只由后端读取。系统通过官方 `/v1/models` 接口读取当前账号可用模型，前端只接收模型 ID 列表，并允许用户选择本次生成使用的模型。可选环境变量 `QINIU_AI_MODEL` 用于设置默认模型。状态与模型接口都不会返回密钥。
 
+Windows 本机可运行一次 `.\scripts\configure-qiniu.ps1 -Model deepseek-v3`。该脚本使用当前 Windows 用户的 DPAPI 加密密钥并保存到 Git 忽略的 `.local` 目录；`start-demo.ps1` 与 `verify-qiniu.ps1` 会自动读取。此配置只适合本机开发，不应复制到部署服务器。
+
 慢模型可按需提高超时时间和最大输出长度：
 
 ```powershell
