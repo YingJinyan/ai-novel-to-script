@@ -27,3 +27,4 @@ data/
 outputs/
 *.log
 .demo-pids.json
+.local/

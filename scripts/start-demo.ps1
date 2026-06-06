@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $pidFile = Join-Path $root ".demo-pids.json"
+. (Join-Path $PSScriptRoot "import-qiniu-config.ps1")
 
 if (Test-Path $pidFile) {
     throw "Demo PID file already exists. Run .\scripts\stop-demo.ps1 first."
