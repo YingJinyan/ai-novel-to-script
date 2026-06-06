@@ -47,3 +47,49 @@ class ErrorResponse(BaseModel):
     code: str
     message: str
     related_ids: list[str] = Field(default_factory=list)
+
+
+class QualityGateErrorResponse(ErrorResponse):
+    quality_report: ValidationReport
+
+
+class NovelTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_text: str = Field(
+        max_length=MAX_SOURCE_CHARACTERS,
+        description=f"Novel text containing chapter headings; maximum {MAX_SOURCE_CHARACTERS} characters.",
+    )
+
+    @field_validator("novel_text", mode="before")
+    @classmethod
+    def normalize_novel_text(cls, novel_text: Any) -> Any:
+        if not isinstance(novel_text, str):
+            return novel_text
+        return novel_text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
+
+
+class LocalGenerationRequest(NovelTextRequest):
+    title: str = Field(default="本地规则改编", min_length=1, max_length=200)
+
+
+class ParsedChapter(BaseModel):
+    id: str
+    order: int = Field(ge=1)
+    title: str
+    text: str
+
+
+class ChapterParseResponse(BaseModel):
+    eligible: bool
+    chapters: list[ParsedChapter]
+    preamble: str
+    total_characters: int = Field(ge=0)
+    issues: list[ValidationIssue]
+
+
+class LocalGenerationResponse(BaseModel):
+    screenplay: dict[str, Any]
+    source_texts: dict[str, str]
+    issues: list[ValidationIssue]
+    quality_report: ValidationReport

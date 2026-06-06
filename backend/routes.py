@@ -6,8 +6,22 @@ from typing import Any
 
 import yaml
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 
-from backend.models import HealthResponse, ValidationReport, ValidationRequest
+from backend.models import (
+    ChapterParseResponse,
+    ErrorResponse,
+    HealthResponse,
+    LocalGenerationRequest,
+    LocalGenerationResponse,
+    NovelTextRequest,
+    ParsedChapter,
+    QualityGateErrorResponse,
+    ValidationIssue,
+    ValidationReport,
+    ValidationRequest,
+)
+from backend.pipeline import analyze_chapters, generate_local_screenplay
 from scripts.validate_example import EXAMPLE_PATH, validate_screenplay
 
 
@@ -40,3 +54,72 @@ def get_example() -> dict[str, Any]:
 def validate(request: ValidationRequest) -> dict:
     """Validate a screenplay and return its structured quality report."""
     return validate_screenplay(request.screenplay, request.source_texts)
+
+
+@router.post(
+    "/projects/parse",
+    response_model=ChapterParseResponse,
+    responses={422: {"model": ErrorResponse}},
+)
+def parse_project(request: NovelTextRequest) -> ChapterParseResponse:
+    """Parse chapters while preserving partial results for author review."""
+    result = analyze_chapters(request.novel_text)
+    return ChapterParseResponse(
+        eligible=result.eligible,
+        chapters=[
+            ParsedChapter(
+                id=chapter.id,
+                order=chapter.order,
+                title=chapter.title,
+                text=chapter.text,
+            )
+            for chapter in result.chapters
+        ],
+        preamble=result.preamble,
+        total_characters=result.total_characters,
+        issues=[ValidationIssue.model_validate(issue) for issue in result.issues],
+    )
+
+
+@router.post(
+    "/projects/generate-local",
+    response_model=LocalGenerationResponse,
+    responses={
+        422: {"model": ErrorResponse},
+        500: {"model": QualityGateErrorResponse},
+    },
+)
+def generate_project_local(
+    request: LocalGenerationRequest,
+) -> LocalGenerationResponse | JSONResponse:
+    """Generate a deterministic screenplay or return the first blocking input issue."""
+    parse_result = analyze_chapters(request.novel_text)
+    if not parse_result.eligible:
+        issue = next(
+            issue for issue in parse_result.issues if issue["severity"] == "error"
+        )
+        error = ErrorResponse(
+            code=issue["code"],
+            message=issue["message"],
+            related_ids=issue["related_ids"],
+        )
+        return JSONResponse(status_code=422, content=error.model_dump())
+
+    result = generate_local_screenplay(request.novel_text, title=request.title)
+    quality_report = ValidationReport.model_validate(
+        validate_screenplay(result.screenplay, result.source_texts)
+    )
+    if not quality_report.passed:
+        error = QualityGateErrorResponse(
+            code="generated_screenplay_failed_quality_gate",
+            message="生成结果未通过质量门禁。",
+            related_ids=[],
+            quality_report=quality_report,
+        )
+        return JSONResponse(status_code=500, content=error.model_dump())
+    return LocalGenerationResponse(
+        screenplay=result.screenplay,
+        source_texts=result.source_texts,
+        issues=[ValidationIssue.model_validate(issue) for issue in result.issues],
+        quality_report=quality_report,
+    )

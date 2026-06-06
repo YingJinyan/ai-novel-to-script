@@ -50,7 +50,7 @@ def test_rejects_novel_with_fewer_than_three_chapters() -> None:
     result = analyze_chapters("第1章 开始\n正文。\n第二章 继续\n正文。")
     assert result.eligible is False
     assert len(result.chapters) == 2
-    assert result.total_characters == sum(len(chapter.text) for chapter in result.chapters)
+    assert result.total_characters == len("第1章 开始\n正文。\n第二章 继续\n正文。")
     assert result.issues[-1]["code"] == "chapter_count_too_low"
 
 
@@ -314,3 +314,15 @@ def test_accepts_exact_character_limit() -> None:
 
     assert len(result.screenplay["source"]["chapters"]) == 3
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
+def test_parse_preserves_over_one_hundred_chapters_but_blocks_generation() -> None:
+    novel = "\n".join(f"第{i}章 标题\n正文。" for i in range(1, 102))
+
+    result = analyze_chapters(novel)
+
+    assert result.eligible is False
+    assert len(result.chapters) == 101
+    assert "chapter_count_too_high" in {issue["code"] for issue in result.issues}
+    with pytest.raises(LocalPipelineError, match="最多生成 100 个章节"):
+        generate_local_screenplay(novel)
