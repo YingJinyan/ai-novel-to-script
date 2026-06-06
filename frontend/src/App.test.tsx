@@ -248,6 +248,21 @@ describe("workbench", () => {
     expect(screen.getByText("七牛 AI · configured-model")).toBeInTheDocument();
   });
 
+  it("prefers a recommended text model when the configured default is unavailable", async () => {
+    mockApi(
+      [new Response(JSON.stringify(parsePayload), { status: 200 })],
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "invalid-project-name" },
+      ["qwen2.5-vl-7b-instruct", "deepseek-v3", "deepseek-r1"],
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    const modelSelect = await screen.findByLabelText("七牛模型");
+    await waitFor(() => expect(modelSelect).toHaveValue("deepseek-v3"));
+    expect(screen.getByText(/推荐：适合结构化文本改编与稳定演示/)).toBeInTheDocument();
+  });
+
   it("sends edited YAML to the backend and displays a blocking report", async () => {
     const blockedReport = {
       passed: false,
