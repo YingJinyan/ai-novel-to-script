@@ -171,6 +171,71 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
     return issues
 
 
+def validate_generation_contract(screenplay: dict) -> list[str]:
+    """Prevent edited metadata from misrepresenting how a screenplay was generated."""
+    generation = screenplay["project"]["generation"]
+    provider = generation["provider"]
+    model = generation.get("model", "")
+    mode = generation["mode"]
+    issues: list[str] = []
+
+    if mode == "qiniu_ai":
+        if provider != "qiniu-ai":
+            issues.append("qiniu_ai generation mode requires provider qiniu-ai")
+        if not model.strip():
+            issues.append("qiniu_ai generation mode requires a non-empty model")
+    elif mode == "compatible_ai":
+        if provider in {"qiniu-ai", "local-rules"}:
+            issues.append(
+                "compatible_ai generation mode cannot use a reserved Qiniu or local provider"
+            )
+        if not model.strip():
+            issues.append("compatible_ai generation mode requires a non-empty model")
+    elif mode == "local_rules":
+        if provider != "local-rules":
+            issues.append("local_rules generation mode requires provider local-rules")
+        if model:
+            issues.append("local_rules generation mode requires an empty model")
+    elif mode == "curated_demo":
+        if provider != "local-curated-example":
+            issues.append(
+                "curated_demo generation mode requires provider local-curated-example"
+            )
+        if model:
+            issues.append("curated_demo generation mode requires an empty model")
+
+    if provider == "qiniu-ai" and mode != "qiniu_ai":
+        issues.append("provider qiniu-ai requires qiniu_ai generation mode")
+    if provider == "local-rules" and mode != "local_rules":
+        issues.append("provider local-rules requires local_rules generation mode")
+    if provider == "local-curated-example" and mode != "curated_demo":
+        issues.append(
+            "provider local-curated-example requires curated_demo generation mode"
+        )
+
+    return issues
+
+
+def validate_scene_grounding(screenplay: dict) -> list[str]:
+    """Require every source-adaptation scene to retain its traced evidence quotes."""
+    events = {event["id"]: event for event in screenplay["narrative_events"]}
+    issues: list[str] = []
+    for scene in screenplay["screenplay"]["scenes"]:
+        action_texts = [
+            beat["text"] for beat in scene["beats"] if beat["type"] == "action"
+        ]
+        for event_id in scene["traceability"]["source_event_ids"]:
+            event = events.get(event_id)
+            if event is None:
+                continue
+            quote = event["evidence"]["quote"]
+            if not any(quote in action_text for action_text in action_texts):
+                issues.append(
+                    f"{scene['id']} action text does not retain evidence quote for {event_id}"
+                )
+    return issues
+
+
 def build_quality_report(
     screenplay: dict,
     schema_errors: list[str] | None = None,
@@ -314,8 +379,14 @@ def validate_screenplay(screenplay: object, source_texts: dict[str, str]) -> dic
             ],
         }
 
-    reference_errors = validate_references(screenplay)
-    evidence_errors = validate_source_evidence(screenplay, source_texts)
+    reference_errors = [
+        *validate_references(screenplay),
+        *validate_generation_contract(screenplay),
+    ]
+    evidence_errors = [
+        *validate_source_evidence(screenplay, source_texts),
+        *validate_scene_grounding(screenplay),
+    ]
     return build_quality_report(
         screenplay,
         reference_errors=reference_errors,

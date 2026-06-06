@@ -151,12 +151,14 @@ export default function App() {
   const [yamlDirty, setYamlDirty] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
+  const yamlRevision = useRef(0);
 
   const scenes = result?.screenplay.screenplay.scenes ?? [];
   const yamlText = useMemo(() => result ? yaml.dump(result.screenplay, { noRefs: true, lineWidth: 100 }) : "", [result]);
   const activeQualityReport = yamlDirty ? null : yamlReport ?? result?.quality_report ?? null;
 
   useEffect(() => {
+    yamlRevision.current += 1;
     setYamlDraft(yamlText);
     setYamlReport(null);
     setYamlMessage("");
@@ -254,6 +256,7 @@ export default function App() {
   }
 
   function downloadYaml() {
+    if (!activeQualityReport?.passed) return;
     const url = URL.createObjectURL(new Blob([yamlDraft || yamlText], { type: "text/yaml;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url; link.download = `${title.trim() || "screenplay"}.yaml`; link.click();
@@ -262,6 +265,7 @@ export default function App() {
 
   async function validateYamlDraft() {
     if (!result) return;
+    const requestedRevision = yamlRevision.current;
     setYamlValidating(true);
     setYamlMessage("");
     try {
@@ -277,6 +281,10 @@ export default function App() {
         return;
       }
       const report = await validateScreenplay(parsed, result.source_texts);
+      if (requestedRevision !== yamlRevision.current) {
+        setYamlMessage("校验期间 YAML 已修改，请重新校验。");
+        return;
+      }
       setYamlReport(report);
       setYamlDirty(false);
       setYamlMessage(report.passed ? "当前 YAML 已通过质量门禁。" : "当前 YAML 被质量门禁阻断，请查看问题。");
@@ -288,6 +296,10 @@ export default function App() {
         } : current);
       }
     } catch (err) {
+      if (requestedRevision !== yamlRevision.current) {
+        setYamlMessage("校验期间 YAML 已修改，请重新校验。");
+        return;
+      }
       const message = err instanceof Error ? `YAML 无法解析：${err.message}` : "YAML 无法解析。";
       setYamlReport({
         passed: false,
@@ -359,11 +371,11 @@ export default function App() {
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 
         <section className="workspace panel">
-          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p></div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" onClick={downloadYaml}>下载剧本 YAML</button></div>}</div>
+          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p></div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></div>}</div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
             <nav className="tabs" aria-label="结果视图">
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>场次与证据 <b>{scenes.length}</b></button>
-              <button className={tab === "coverage" ? "active" : ""} onClick={() => setTab("coverage")}>章节覆盖矩阵</button>
+              <button className={tab === "coverage" ? "active" : ""} onClick={() => setTab("coverage")}>事件覆盖矩阵</button>
               <button className={tab === "quality" ? "active" : ""} onClick={() => setTab("quality")}>质量门禁 <b className={activeQualityReport ? activeQualityReport.passed ? "good" : "bad" : "pending"}>{activeQualityReport ? activeQualityReport.passed ? "通过" : "阻断" : "待校验"}</b></button>
               <button className={tab === "yaml" ? "active" : ""} onClick={() => setTab("yaml")}>原始 YAML</button>
             </nav>
@@ -378,7 +390,7 @@ export default function App() {
             {tab === "quality" && activeQualityReport && <div className="quality-view"><div className={`gate ${activeQualityReport.passed ? "pass" : "block"}`}><span>{activeQualityReport.passed ? "✓" : "!"}</span><div><strong>{activeQualityReport.passed ? "质量门禁通过" : "质量门禁阻断"}</strong><p>指标与问题来自后端校验报告。</p></div></div><div className="metric-grid">{Object.entries(activeQualityReport.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>质量问题</h3><IssueList issues={activeQualityReport.issues} /><h3>生成过程问题</h3><IssueList issues={result.issues} /></div>}
             {tab === "quality" && !activeQualityReport && <div className="quality-view"><div className="gate pending"><span>?</span><div><strong>质量门禁待校验</strong><p>当前 YAML 已修改，请重新校验后再判断是否可以交付。</p></div></div></div>}
 
-            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" onClick={downloadYaml}>下载当前草稿</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}
+            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { yamlRevision.current += 1; setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过版本</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}
           </>}
         </section>
       </main>

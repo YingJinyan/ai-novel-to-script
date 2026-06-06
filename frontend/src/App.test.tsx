@@ -72,7 +72,7 @@ const qiniuStatus = {
 };
 
 function mockApi(
-  projectResponses: Array<Response | Error>,
+  projectResponses: Array<Response | Error | Promise<Response>>,
   status = qiniuStatus,
   models: string[] = [],
 ) {
@@ -191,11 +191,11 @@ describe("workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
     fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
-    await screen.findByRole("button", { name: "下载剧本 YAML" });
+    await screen.findByRole("button", { name: "下载已通过剧本 YAML" });
     fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
 
     await screen.findByText("质量门禁阻断");
-    expect(screen.queryByRole("button", { name: "下载剧本 YAML" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "下载已通过剧本 YAML" })).not.toBeInTheDocument();
   });
 
   it("enables Qiniu AI only when the backend reports a configured provider", async () => {
@@ -241,10 +241,10 @@ describe("workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
     fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
-    await screen.findByRole("button", { name: "下载剧本 YAML" });
+    await screen.findByRole("button", { name: "下载已通过剧本 YAML" });
     fireEvent.click(screen.getByRole("button", { name: /七牛 AI configured-model/ }));
 
-    expect(screen.queryByRole("button", { name: "下载剧本 YAML" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "下载已通过剧本 YAML" })).not.toBeInTheDocument();
     expect(screen.getByText("七牛 AI · configured-model")).toBeInTheDocument();
   });
 
@@ -289,9 +289,12 @@ describe("workbench", () => {
     fireEvent.change(screen.getByLabelText("可编辑剧本 YAML"), {
       target: { value: "schema_version: 1.0.0\n" },
     });
+    expect(screen.getByRole("button", { name: "下载已通过剧本 YAML" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下载已通过版本" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "重新校验 YAML" }));
 
     await screen.findByText("当前 YAML 被质量门禁阻断，请查看问题。");
+    expect(screen.getByRole("button", { name: "下载已通过剧本 YAML" })).toBeDisabled();
     expect(screen.getByText("project is required.")).toBeInTheDocument();
     const validationRequest = fetchMock.mock.calls.find(([input]) =>
       String(input).includes("/api/v1/validate")
@@ -300,5 +303,35 @@ describe("workbench", () => {
       screenplay: { schema_version: "1.0.0" },
       source_texts: generationPayload.source_texts,
     });
+  });
+
+  it("ignores an outdated passing validation response after the YAML changes", async () => {
+    let resolveValidation!: (response: Response) => void;
+    const delayedValidation = new Promise<Response>((resolve) => {
+      resolveValidation = resolve;
+    });
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify(generationPayload), { status: 200 }),
+      delayedValidation,
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    await screen.findByText("来源证据");
+    fireEvent.click(screen.getByRole("button", { name: "原始 YAML" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新校验 YAML" }));
+    fireEvent.change(screen.getByLabelText("可编辑剧本 YAML"), {
+      target: { value: "schema_version: 1.0.0\n" },
+    });
+    resolveValidation(
+      new Response(JSON.stringify(generationPayload.quality_report), { status: 200 }),
+    );
+
+    await screen.findByText("校验期间 YAML 已修改，请重新校验。");
+    expect(screen.getByRole("button", { name: "下载已通过剧本 YAML" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下载已通过版本" })).toBeDisabled();
   });
 });

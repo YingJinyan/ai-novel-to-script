@@ -113,7 +113,7 @@ screenplay:
         - character_lin_xia
       beats:
         - type: action
-          text: 雨水敲打窗户。林夏从一叠退回的信件中抽出一个发黄信封。
+          text: 雨水敲打窗户。林夏从一叠退回的信件中抽出一个发黄信封。信末只有一句话：去末班车停靠过的地方。
         - type: narration
           text: 信封上的字迹属于失踪三年的父亲。
         - type: action
@@ -140,7 +140,7 @@ screenplay:
         - character_chen_mo
       beats:
         - type: action
-          text: 顶灯闪烁。陈默站在站台尽头，像是早已等候多时。
+          text: 顶灯闪烁。守站人没有问她是谁，只说，你终于来了。
         - type: dialogue
           character_id: character_lin_xia
           parenthetical: 压住怒意
@@ -170,7 +170,7 @@ screenplay:
         - character_chen_mo
       beats:
         - type: action
-          text: 陈默从售票窗口下方取出一张没有日期的旧车票。
+          text: 陈默从售票窗口下方取出一张没有日期的旧车票。那张没有发出的车票背面，写着另一个地名。
         - type: dialogue
           character_id: character_chen_mo
           text: 他没让我告诉你答案，只让我把路交给你。
