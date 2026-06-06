@@ -181,6 +181,45 @@ def test_full_ai_adaptation_deduplicates_character_aliases() -> None:
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
 
 
+def test_full_ai_adaptation_resolves_unique_location_name_variation_without_retry() -> None:
+    class VariantLocationClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            result["scenes"][2]["location_name"] = "狭窄站长室"
+            return result
+
+    client = VariantLocationClient()
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 1
+    assert len(result.screenplay["story_bible"]["locations"]) == 2
+    assert result.screenplay["screenplay"]["scenes"][2]["heading"]["location_id"] == "location_002"
+    assert "ai_location_reference_normalized" in {issue["code"] for issue in result.issues}
+
+
+def test_full_ai_adaptation_registers_scene_only_location_for_author_review() -> None:
+    class NewLocationClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            result["scenes"][2]["location_name"] = "车站月台"
+            return result
+
+    client = NewLocationClient()
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 1
+    assert result.screenplay["story_bible"]["locations"][-1]["name"] == "车站月台"
+    assert result.screenplay["screenplay"]["scenes"][2]["heading"]["location_id"] == "location_003"
+    assert "ai_location_review_required" in {issue["code"] for issue in result.issues}
+    assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
 def test_full_ai_adaptation_repairs_missing_structure_once() -> None:
     class RepairClient(FakeQiniuClient):
         calls = 0

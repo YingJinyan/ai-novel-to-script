@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import json
+import re
+from difflib import SequenceMatcher
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -219,6 +221,43 @@ def _normalized(value: str) -> str:
     return value.strip().casefold()
 
 
+def _entity_key(value: str) -> str:
+    return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).casefold()
+
+
+def _resolve_entity_reference(name: str, lookup: dict[str, str]) -> str | None:
+    """Resolve harmless naming variations only when the match is unambiguous."""
+    normalized = _normalized(name)
+    if normalized in lookup:
+        return lookup[normalized]
+
+    reference_key = _entity_key(name)
+    keyed_candidates = [
+        (_entity_key(candidate), entity_id)
+        for candidate, entity_id in lookup.items()
+        if _entity_key(candidate)
+    ]
+    contained = {
+        entity_id
+        for candidate_key, entity_id in keyed_candidates
+        if len(min(reference_key, candidate_key, key=len)) >= 2
+        and (reference_key in candidate_key or candidate_key in reference_key)
+    }
+    if len(contained) == 1:
+        return next(iter(contained))
+
+    best_scores: dict[str, float] = {}
+    for candidate_key, entity_id in keyed_candidates:
+        score = SequenceMatcher(None, reference_key, candidate_key).ratio()
+        best_scores[entity_id] = max(score, best_scores.get(entity_id, 0.0))
+    scored = sorted((score, entity_id) for entity_id, score in best_scores.items())
+    if not scored or scored[-1][0] < 0.78:
+        return None
+    if len(scored) > 1 and scored[-1][0] - scored[-2][0] < 0.12:
+        return None
+    return scored[-1][1]
+
+
 def _validation_feedback(exc: ValidationError) -> str:
     problems: list[str] = []
     for error in exc.errors(include_url=False, include_input=False)[:10]:
@@ -255,8 +294,10 @@ def _build_screenplay(
     adaptation: FullScreenplayAdaptation,
     evidence_candidates: list[dict],
     model: str,
+    build_issues: list[dict] | None = None,
 ) -> dict:
     screenplay = copy.deepcopy(local_result.screenplay)
+    build_issues = build_issues if build_issues is not None else []
     evidence_by_id = {item["evidence_id"]: item for item in evidence_candidates}
     chapter_ids = {item["id"] for item in screenplay["source"]["chapters"]}
 
@@ -336,11 +377,41 @@ def _build_screenplay(
 
     scenes: list[dict] = []
     for index, item in enumerate(adaptation.scenes, start=1):
-        location_id = location_lookup.get(_normalized(item.location_name))
+        exact_location_id = location_lookup.get(_normalized(item.location_name))
+        location_id = _resolve_entity_reference(item.location_name, location_lookup)
         if location_id is None:
-            raise QiniuAIError(
-                "qiniu_provider_output_invalid",
-                f"七牛 AI 场次 {index} 引用了未定义地点。",
+            location_id = f"location_{len(locations) + 1:03d}"
+            location_name = item.location_name.strip()
+            locations.append(
+                {
+                    "id": location_id,
+                    "name": location_name,
+                    "description": "七牛 AI 在场次中推断的地点，需由作者复核。",
+                }
+            )
+            location_lookup[_normalized(location_name)] = location_id
+            build_issues.append(
+                {
+                    "code": "ai_location_review_required",
+                    "severity": "warning",
+                    "message": f"场次 {index} 使用了 AI 推断的新地点“{location_name}”，请作者复核。",
+                    "related_ids": [location_id, f"scene_{index:03d}"],
+                }
+            )
+        elif exact_location_id is None:
+            canonical_name = next(
+                location["name"] for location in locations if location["id"] == location_id
+            )
+            build_issues.append(
+                {
+                    "code": "ai_location_reference_normalized",
+                    "severity": "warning",
+                    "message": (
+                        f"场次 {index} 的地点“{item.location_name.strip()}”已关联到"
+                        f"“{canonical_name}”，请作者复核。"
+                    ),
+                    "related_ids": [location_id, f"scene_{index:03d}"],
+                }
             )
         event_ids = list(
             dict.fromkeys(events[number - 1]["id"] for number in item.source_event_numbers)
@@ -350,7 +421,7 @@ def _build_screenplay(
         )
         character_ids: list[str] = []
         for name in item.character_names:
-            character_id = character_lookup.get(_normalized(name))
+            character_id = _resolve_entity_reference(name, character_lookup)
             if character_id is None:
                 raise QiniuAIError(
                     "qiniu_provider_output_invalid",
@@ -363,7 +434,7 @@ def _build_screenplay(
         for beat in item.beats:
             converted = {"type": beat.type, "text": beat.text.strip()}
             if beat.type == "dialogue":
-                character_id = character_lookup.get(_normalized(beat.character_name))
+                character_id = _resolve_entity_reference(beat.character_name, character_lookup)
                 if character_id is None:
                     raise QiniuAIError(
                         "qiniu_provider_output_invalid",
@@ -450,14 +521,17 @@ def generate_qiniu_screenplay(
     output = provider.complete_json(messages)
     feedback = ""
     screenplay: dict | None = None
+    build_issues: list[dict] = []
     for attempt in range(2):
         try:
             adaptation = FullScreenplayAdaptation.model_validate(output)
+            build_issues.clear()
             screenplay = _build_screenplay(
                 local_result,
                 adaptation,
                 evidence_candidates,
                 provider.settings.model,
+                build_issues,
             )
             break
         except ValidationError as exc:
@@ -488,6 +562,7 @@ def generate_qiniu_screenplay(
             "message": "AI 已完成完整剧本化改编，人物关系、对白与场景推断仍需要作者复核。",
             "related_ids": [scene["id"] for scene in screenplay["screenplay"]["scenes"]],
         },
+        *build_issues,
     )
     return PipelineResult(
         screenplay=screenplay,
