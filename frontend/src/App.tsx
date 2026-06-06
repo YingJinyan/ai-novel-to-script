@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
-import { ApiError, generateLocal, parseNovel } from "./api";
-import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
+import { ApiError, generateAI, generateLocal, getQiniuStatus, parseNovel } from "./api";
+import type { GenerationResponse, Issue, ParseResponse, ProviderStatus, QualityReport, Scene } from "./types";
 
 type ResultTab = "script" | "coverage" | "quality" | "yaml";
+type GenerationMode = "local" | "qiniu";
 
 const issueLabel = { error: "阻断", warning: "注意", info: "信息" };
 const SAMPLE_NOVEL = `第一章 雨夜车站
@@ -101,11 +102,17 @@ export default function App() {
   const [loading, setLoading] = useState<"parse" | "generate" | null>(null);
   const [error, setError] = useState("");
   const [blockedQuality, setBlockedQuality] = useState<QualityReport | null>(null);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("local");
+  const [qiniuStatus, setQiniuStatus] = useState<ProviderStatus | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
 
   const scenes = result?.screenplay.screenplay.scenes ?? [];
   const yamlText = useMemo(() => result ? yaml.dump(result.screenplay, { noRefs: true, lineWidth: 100 }) : "", [result]);
+
+  useEffect(() => {
+    getQiniuStatus().then(setQiniuStatus).catch(() => setQiniuStatus(null));
+  }, []);
 
   async function handleParse() {
     if (!novelText.trim()) return setError("请先粘贴或导入小说正文。");
@@ -120,10 +127,15 @@ export default function App() {
   async function handleGenerate() {
     if (!title.trim()) return setError("请填写项目名称。");
     if (!parsed?.eligible) return setError("当前解析结果未达到生成条件，请先处理阻断问题。");
+    if (generationMode === "qiniu" && !qiniuStatus?.configured) {
+      return setError("七牛 AI 尚未配置，请设置 API Key 与模型，或使用离线规则模式。");
+    }
     setLoading("generate"); setError(""); setBlockedQuality(null); setResult(null);
     const requestedRevision = sourceRevision.current;
     try {
-      const generated = await generateLocal(novelText, title.trim());
+      const generated = generationMode === "qiniu"
+        ? await generateAI(novelText, title.trim())
+        : await generateLocal(novelText, title.trim());
       if (requestedRevision === sourceRevision.current) {
         setResult(generated); setSelectedScene(0); setTab("script");
       }
@@ -148,6 +160,13 @@ export default function App() {
     setNovelText(SAMPLE_NOVEL);
     setTitle("雨夜来信");
     setParsed(null);
+    setResult(null);
+    setBlockedQuality(null);
+    setError("");
+  }
+
+  function selectGenerationMode(mode: GenerationMode) {
+    setGenerationMode(mode);
     setResult(null);
     setBlockedQuality(null);
     setError("");
@@ -183,7 +202,7 @@ export default function App() {
     <div className="app-shell">
       <header>
         <div className="brand"><span className="brand-mark">溯</span><div><strong>溯源剧本工作台</strong><small>可信 · 可控 · 可追溯</small></div></div>
-        <div className="mode"><i />离线规则模式（不调用 AI）</div>
+        <div className="mode"><i />{generationMode === "qiniu" ? "七牛 AI 受限润色模式" : "离线规则模式（不调用 AI）"}</div>
       </header>
 
       <main>
@@ -206,7 +225,8 @@ export default function App() {
               <div className="stats"><div><strong>{parsed.chapters.length}</strong><span>识别章节</span></div><div><strong>{parsed.total_characters.toLocaleString()}</strong><span>总字符</span></div><div><strong>{parsed.issues.length}</strong><span>问题</span></div></div>
               <div className="chapter-strip">{parsed.chapters.map((chapter) => <div key={chapter.id}><span>{String(chapter.order).padStart(2, "0")}</span><strong>{chapter.title}</strong><small>{chapter.text.length} 字符</small></div>)}</div>
               <IssueList issues={parsed.issues} />
-              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : "生成结构化剧本"}</button></div>
+              <div className="provider-picker"><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>离线规则</strong><span>不调用 AI，稳定生成可追溯骨架</span></button><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !qiniuStatus?.configured} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI</strong><span>{qiniuStatus?.configured ? `${qiniuStatus.model} · 受限润色` : "未配置 API Key 与模型"}</span></button></div>
+              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : generationMode === "qiniu" ? "使用七牛 AI 润色" : "生成结构化剧本"}</button></div>
             </>}
           </div>
         </section>

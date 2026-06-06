@@ -360,3 +360,101 @@ def test_openapi_documents_project_error_response_and_text_limit() -> None:
         ]["application/json"]["schema"]["$ref"]
         == "#/components/schemas/QualityGateErrorResponse"
     )
+
+
+def test_qiniu_provider_status_never_returns_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("QINIU_AI_API_KEY", "do-not-return")
+    monkeypatch.setenv("QINIU_AI_MODEL", "configured-model")
+
+    response = client.get("/api/v1/providers/qiniu/status")
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is True
+    assert response.json()["model"] == "configured-model"
+    assert "do-not-return" not in response.text
+
+
+def test_generate_ai_returns_not_configured_without_credentials(monkeypatch) -> None:
+    monkeypatch.delenv("QINIU_AI_API_KEY", raising=False)
+    monkeypatch.delenv("QINIU_AI_MODEL", raising=False)
+
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={"novel_text": NOVEL, "title": "雨夜真相"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "qiniu_provider_not_configured"
+
+
+def test_generate_ai_validates_chapters_before_calling_provider(monkeypatch) -> None:
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("provider pipeline must not run")
+
+    monkeypatch.setattr("backend.routes.generate_qiniu_screenplay", should_not_run)
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={"novel_text": "第一章 开始\n正文。\n第二章 继续\n正文。"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "chapter_count_too_low"
+
+
+def test_generate_ai_returns_quality_gated_result(monkeypatch) -> None:
+    from backend.pipeline import generate_local_screenplay
+
+    generated = generate_local_screenplay(NOVEL, title="七牛润色")
+    generated.screenplay["project"]["generation"] = {
+        "provider": "qiniu-ai",
+        "model": "mock-model",
+        "mode": "qiniu_ai",
+        "fallback_reason": "",
+    }
+    monkeypatch.setattr(
+        "backend.routes.generate_qiniu_screenplay",
+        lambda *args, **kwargs: generated,
+    )
+
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={"novel_text": NOVEL, "title": "七牛润色"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["screenplay"]["project"]["generation"]["mode"] == "qiniu_ai"
+    assert response.json()["quality_report"]["passed"] is True
+
+
+def test_generate_ai_blocks_result_that_fails_quality_gate(monkeypatch) -> None:
+    from backend.pipeline import generate_local_screenplay
+
+    generated = generate_local_screenplay(NOVEL, title="七牛润色")
+    monkeypatch.setattr(
+        "backend.routes.generate_qiniu_screenplay",
+        lambda *args, **kwargs: generated,
+    )
+    monkeypatch.setattr(
+        "backend.routes.validate_screenplay",
+        lambda *args, **kwargs: {
+            "passed": False,
+            "metrics": {"source_traceability_coverage": 0.0},
+            "issues": [
+                {
+                    "code": "evidence_validation_error",
+                    "severity": "error",
+                    "message": "Evidence mismatch.",
+                    "related_ids": ["event_001"],
+                }
+            ],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={"novel_text": NOVEL, "title": "七牛润色"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "ai_generated_screenplay_failed_quality_gate"
+    assert response.json()["quality_report"]["passed"] is False

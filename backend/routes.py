@@ -16,12 +16,14 @@ from backend.models import (
     LocalGenerationResponse,
     NovelTextRequest,
     ParsedChapter,
+    ProviderStatusResponse,
     QualityGateErrorResponse,
     ValidationIssue,
     ValidationReport,
     ValidationRequest,
 )
-from backend.pipeline import analyze_chapters, generate_local_screenplay
+from backend.pipeline import analyze_chapters, generate_local_screenplay, generate_qiniu_screenplay
+from backend.providers import QiniuAIError, QiniuSettings
 from scripts.validate_example import EXAMPLE_PATH, validate_screenplay
 
 
@@ -48,6 +50,19 @@ def get_example() -> dict[str, Any]:
     if not isinstance(example, dict):
         raise HTTPException(status_code=500, detail="Example screenplay must be a YAML object.")
     return example
+
+
+@router.get("/providers/qiniu/status", response_model=ProviderStatusResponse)
+def qiniu_provider_status() -> ProviderStatusResponse:
+    """Return non-secret provider configuration status."""
+    settings = QiniuSettings.from_env()
+    return ProviderStatusResponse(
+        provider="qiniu-ai",
+        configured=settings.configured,
+        model=settings.model,
+        base_url=settings.base_url,
+        mode="qiniu_ai",
+    )
 
 
 @router.post("/validate", response_model=ValidationReport)
@@ -113,6 +128,60 @@ def generate_project_local(
         error = QualityGateErrorResponse(
             code="generated_screenplay_failed_quality_gate",
             message="生成结果未通过质量门禁。",
+            related_ids=[],
+            quality_report=quality_report,
+        )
+        return JSONResponse(status_code=500, content=error.model_dump())
+    return LocalGenerationResponse(
+        screenplay=result.screenplay,
+        source_texts=result.source_texts,
+        issues=[ValidationIssue.model_validate(issue) for issue in result.issues],
+        quality_report=quality_report,
+    )
+
+
+@router.post(
+    "/projects/generate-ai",
+    response_model=LocalGenerationResponse,
+    responses={
+        422: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+        500: {"model": QualityGateErrorResponse},
+    },
+)
+def generate_project_ai(
+    request: LocalGenerationRequest,
+) -> LocalGenerationResponse | JSONResponse:
+    """Generate with Qiniu AI inside a deterministic, quality-gated source skeleton."""
+    parse_result = analyze_chapters(request.novel_text)
+    if not parse_result.eligible:
+        issue = next(
+            issue for issue in parse_result.issues if issue["severity"] == "error"
+        )
+        error = ErrorResponse(
+            code=issue["code"],
+            message=issue["message"],
+            related_ids=issue["related_ids"],
+        )
+        return JSONResponse(status_code=422, content=error.model_dump())
+
+    try:
+        result = generate_qiniu_screenplay(request.novel_text, title=request.title)
+    except QiniuAIError as exc:
+        status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
+        if exc.code == "ai_source_text_too_long":
+            status_code = 422
+        error = ErrorResponse(code=exc.code, message=str(exc), related_ids=[])
+        return JSONResponse(status_code=status_code, content=error.model_dump())
+
+    quality_report = ValidationReport.model_validate(
+        validate_screenplay(result.screenplay, result.source_texts)
+    )
+    if not quality_report.passed:
+        error = QualityGateErrorResponse(
+            code="ai_generated_screenplay_failed_quality_gate",
+            message="七牛 AI 润色结果未通过质量门禁。",
             related_ids=[],
             quality_report=quality_report,
         )

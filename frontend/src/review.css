@@ -25,6 +25,44 @@
   margin: 16px 18px 8px;
 }
 
+.provider-picker {
+  border-top: 1px solid #e7e0d5;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  padding: 12px 18px 0;
+}
+
+.provider-picker button {
+  background: #f6f2eb;
+  border: 1px solid #ded6c8;
+  color: #66717a;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px;
+  text-align: left;
+}
+
+.provider-picker button.selected {
+  background: #fff7e7;
+  border-color: #b77a20;
+  color: #7b561a;
+}
+
+.provider-picker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.provider-picker strong {
+  font-size: 11px;
+}
+
+.provider-picker span {
+  font-size: 9px;
+}
+
 .source-panel textarea:disabled,
 .generate-box input:disabled {
   cursor: wait;
