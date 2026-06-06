@@ -572,7 +572,7 @@ def _build_screenplay(
                     "adaptation_actions": [
                         {
                             "type": "rewrite",
-                            "description": "七牛 AI 根据来源事件完成场景拆分、动作与对白改编。",
+                            "description": "根据来源事件完成场景拆分、动作与对白改编。",
                             "rationale": "提升可表演性；事件证据、字符位置与章节哈希由系统确定。",
                         }
                     ],

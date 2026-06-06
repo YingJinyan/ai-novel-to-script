@@ -166,6 +166,9 @@ def test_full_ai_adaptation_extracts_structure_and_passes_quality_gate() -> None
     ]
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
     assert result.issues[-1]["code"] == "ai_semantic_review_required"
+    serialized = json.dumps(result.screenplay, ensure_ascii=False)
+    assert serialized.count("qiniu-ai") == 1
+    assert "七牛 AI 根据来源事件" not in serialized
 
 
 def test_full_ai_adaptation_deduplicates_character_aliases() -> None:
