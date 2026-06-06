@@ -22,11 +22,10 @@ SAMPLE_NOVEL = """第一章 雨夜车站
 
 RECOMMENDED_MODELS = (
     "deepseek-v3",
-    "deepseek-v3.1",
-    "deepseek/deepseek-v3.1-terminus",
     "qwen3-max",
     "moonshotai/kimi-k2.5",
 )
+SLOW_MODELS = {"deepseek-v3.1", "deepseek/deepseek-v3.1-terminus"}
 
 
 class VerificationError(RuntimeError):
@@ -42,7 +41,7 @@ def select_model(models: list[str], requested: str = "", configured: str = "") -
         if requested not in available:
             raise VerificationError(f"指定模型不可用：{requested}")
         return requested
-    if configured and configured in available:
+    if configured and configured in available and configured not in SLOW_MODELS:
         return configured
     recommended = next((model for model in RECOMMENDED_MODELS if model in available), "")
     return recommended or available[0]

@@ -5,7 +5,7 @@ import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } f
 
 type ResultTab = "script" | "bible" | "coverage" | "quality" | "yaml";
 type GenerationMode = "local" | "qiniu";
-type ModelGroup = "recommended" | "general" | "thinking" | "vision";
+type ModelGroup = "recommended" | "general" | "slow" | "thinking" | "vision";
 
 const issueLabel = { error: "阻断", warning: "注意", info: "信息" };
 const roleLabel: Record<string, string> = {
@@ -56,10 +56,12 @@ const METRIC_LABELS: Record<string, string> = {
 };
 const RECOMMENDED_QINIU_MODELS = [
   "deepseek-v3",
-  "deepseek-v3.1",
-  "deepseek/deepseek-v3.1-terminus",
   "qwen3-max",
   "moonshotai/kimi-k2.5",
+];
+const SLOW_QINIU_MODELS = [
+  "deepseek-v3.1",
+  "deepseek/deepseek-v3.1-terminus",
 ];
 
 function modelGroup(model: string): ModelGroup {
@@ -69,12 +71,14 @@ function modelGroup(model: string): ModelGroup {
   if (normalized.includes("thinking") || normalized.includes("reason") || normalized.includes("r1")) {
     return "thinking";
   }
+  if (SLOW_QINIU_MODELS.includes(model)) return "slow";
   return "general";
 }
 
 function modelGuidance(model: string): string {
   switch (modelGroup(model)) {
     case "recommended": return "推荐：适合结构化文本改编与稳定演示。";
+    case "slow": return "慢模型：实测可能等待较久并发生连接中断，不建议演示时使用。";
     case "thinking": return "推理模型：可能更慢，JSON 输出稳定性需实测。";
     case "vision": return "视觉模型：当前任务不需要图片理解，不建议优先选择。";
     default: return "通用文本模型：可用性与输出质量需用真实小说验证。";
@@ -87,7 +91,7 @@ function groupedModels(models: string[]): Record<ModelGroup, string[]> {
       groups[modelGroup(model)].push(model);
       return groups;
     },
-    { recommended: [], general: [], thinking: [], vision: [] },
+    { recommended: [], general: [], slow: [], thinking: [], vision: [] },
   );
 }
 
@@ -152,6 +156,7 @@ export default function App() {
   const [selectedScene, setSelectedScene] = useState(0);
   const [tab, setTab] = useState<ResultTab>("script");
   const [loading, setLoading] = useState<"parse" | "generate" | null>(null);
+  const [generationSeconds, setGenerationSeconds] = useState(0);
   const [error, setError] = useState("");
   const [blockedQuality, setBlockedQuality] = useState<QualityReport | null>(null);
   const [generationMode, setGenerationMode] = useState<GenerationMode>("local");
@@ -181,6 +186,15 @@ export default function App() {
     setYamlDirty(false);
   }, [yamlText]);
 
+  useEffect(() => {
+    if (loading !== "generate") {
+      setGenerationSeconds(0);
+      return;
+    }
+    const timer = window.setInterval(() => setGenerationSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
+
   async function refreshQiniuProvider() {
     setProviderLoading(true);
     setProviderMessage("");
@@ -194,9 +208,12 @@ export default function App() {
       }
       const response = await getQiniuModels();
       setQiniuModels(response.models);
-      const preferred = response.models.includes(response.selected_model)
+      const configuredIsStable = response.models.includes(response.selected_model)
+        && !["slow", "thinking", "vision"].includes(modelGroup(response.selected_model));
+      const preferred = configuredIsStable
         ? response.selected_model
         : RECOMMENDED_QINIU_MODELS.find((model) => response.models.includes(model))
+          ?? response.models.find((model) => modelGroup(model) === "general")
           ?? response.models[0]
           ?? "";
       setSelectedQiniuModel(preferred);
@@ -361,6 +378,13 @@ export default function App() {
     : "";
   const characters = result?.screenplay.story_bible.characters ?? [];
   const locations = result?.screenplay.story_bible.locations ?? [];
+  const generationProgress = generationSeconds < 20
+    ? "正在提交小说与证据单元。"
+    : generationSeconds < 60
+      ? "正在提取人物、地点与关键事件。"
+      : generationSeconds < 120
+        ? "正在生成场次、对白并执行结构校验。"
+        : "当前模型响应较慢。请继续等待；若失败，请改用 deepseek-v3 或 qwen3-max。";
 
   return (
     <div className="app-shell">
@@ -391,12 +415,13 @@ export default function App() {
               <IssueList issues={parsed.issues} />
               <div className="provider-picker"><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !selectedQiniuModel} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI · 完整剧本化</strong><span>{selectedQiniuModel ? `${selectedQiniuModel} · 人物、地点、事件、场次与对白` : "未读取到可用模型"}</span></button><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>可靠兜底</strong><span>不调用 AI，只生成可追溯骨架且不冒充 AI</span></button></div>
               <div className="mode-guidance">{generationMode === "qiniu" ? <><strong>当前将使用七牛 AI 完整剧本化</strong><span>上方对白提示只是输入复核项；AI 会尝试识别人物与说话人，生成后请在“故事要素”中确认。</span></> : <><strong>当前将使用可靠兜底</strong><span>该模式不会推断人物或说话人，只生成可追溯骨架。</span></>}</div>
-              <div className="model-picker"><label>七牛模型<select disabled={!!loading || providerLoading || !qiniuModels.length} value={selectedQiniuModel} onChange={(event) => { setSelectedQiniuModel(event.target.value); if (generationMode === "qiniu") setResult(null); }}>{qiniuModels.length ? <><optgroup label="推荐用于小说改编">{qiniuModelGroups.recommended.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="通用文本模型">{qiniuModelGroups.general.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="推理模型（可能较慢）">{qiniuModelGroups.thinking.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="视觉模型（当前任务不推荐）">{qiniuModelGroups.vision.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup></> : <option value="">暂无可用模型</option>}</select></label><button className="text-button" disabled={providerLoading || !!loading} onClick={() => void refreshQiniuProvider()}>{providerLoading ? "读取中…" : "刷新七牛模型"}</button><span>{providerMessage} {selectedQiniuModel && modelGuidance(selectedQiniuModel)}</span></div>
-              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : generationMode === "qiniu" ? "使用七牛 AI 生成完整剧本" : "使用可靠兜底生成骨架"}</button></div>
+              <div className="model-picker"><label>七牛模型<select disabled={!!loading || providerLoading || !qiniuModels.length} value={selectedQiniuModel} onChange={(event) => { setSelectedQiniuModel(event.target.value); if (generationMode === "qiniu") setResult(null); }}>{qiniuModels.length ? <><optgroup label="推荐用于小说改编">{qiniuModelGroups.recommended.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="通用文本模型">{qiniuModelGroups.general.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="慢模型（不建议演示）">{qiniuModelGroups.slow.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="推理模型（可能较慢）">{qiniuModelGroups.thinking.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="视觉模型（当前任务不推荐）">{qiniuModelGroups.vision.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup></> : <option value="">暂无可用模型</option>}</select></label><button className="text-button" disabled={providerLoading || !!loading} onClick={() => void refreshQiniuProvider()}>{providerLoading ? "读取中…" : "刷新七牛模型"}</button><span>{providerMessage} {selectedQiniuModel && modelGuidance(selectedQiniuModel)}</span></div>
+              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? `正在生成 · ${generationSeconds} 秒` : generationMode === "qiniu" ? "使用七牛 AI 生成完整剧本" : "使用可靠兜底生成骨架"}</button></div>
             </>}
           </div>
         </section>
 
+        {loading === "generate" && <div role="status" className="generation-progress"><strong>{generationMode === "qiniu" ? `七牛 AI 正在生成 · ${generationSeconds} 秒` : "可靠兜底正在生成"}</strong><span>{generationMode === "qiniu" ? generationProgress : "正在构建可追溯骨架。"}</span></div>}
         {error && <div role="alert" className="error-banner"><strong>请求未完成</strong><span>{error}</span></div>}
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 

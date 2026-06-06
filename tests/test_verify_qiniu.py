@@ -30,6 +30,16 @@ def test_select_model_prefers_an_available_configured_default() -> None:
     )
 
 
+def test_select_model_avoids_a_slow_configured_default() -> None:
+    assert (
+        select_model(
+            ["deepseek-v3", "deepseek-v3.1"],
+            configured="deepseek-v3.1",
+        )
+        == "deepseek-v3"
+    )
+
+
 def test_select_model_prefers_a_recommended_model_over_first_available() -> None:
     assert (
         select_model(["qwen2.5-vl-7b-instruct", "deepseek-v3", "deepseek-r1"])

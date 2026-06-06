@@ -123,8 +123,22 @@ class QiniuClient:
                 "qiniu_provider_http_error",
                 f"七牛 AI 返回 HTTP {exc.response.status_code}。",
             ) from exc
+        except (httpx.ReadError, httpx.RemoteProtocolError) as exc:
+            raise QiniuAIError(
+                "qiniu_provider_connection_interrupted",
+                "七牛 AI 连接在生成期间中断。该模型可能响应过慢或上游关闭连接；"
+                "建议改用 deepseek-v3 或 qwen3-max 后重试。",
+            ) from exc
+        except httpx.ConnectError as exc:
+            raise QiniuAIError(
+                "qiniu_provider_connection_error",
+                "无法建立七牛 AI 连接。请检查网络后重试；演示时建议使用 deepseek-v3 或 qwen3-max。",
+            ) from exc
         except httpx.HTTPError as exc:
-            raise QiniuAIError("qiniu_provider_connection_error", "无法连接七牛 AI。") from exc
+            raise QiniuAIError(
+                "qiniu_provider_connection_error",
+                "七牛 AI 网络请求失败。请检查网络，并改用 deepseek-v3 或 qwen3-max 重试。",
+            ) from exc
         finally:
             if should_close:
                 client.close()

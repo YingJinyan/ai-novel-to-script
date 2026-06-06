@@ -272,6 +272,38 @@ def test_qiniu_client_rejects_non_json_content() -> None:
     assert attempts == 2
 
 
+def test_qiniu_client_reports_connection_interrupted_during_generation() -> None:
+    transport = httpx.MockTransport(
+        lambda request: (_ for _ in ()).throw(httpx.ReadError("closed", request=request))
+    )
+    client = QiniuClient(
+        QiniuSettings(api_key="secret", model="deepseek-v3.1"),
+        http_client=httpx.Client(transport=transport),
+    )
+
+    with pytest.raises(QiniuAIError) as error:
+        client.complete_json([])
+
+    assert error.value.code == "qiniu_provider_connection_interrupted"
+    assert "deepseek-v3" in str(error.value)
+
+
+def test_qiniu_client_reports_failure_to_establish_connection() -> None:
+    transport = httpx.MockTransport(
+        lambda request: (_ for _ in ()).throw(httpx.ConnectError("offline", request=request))
+    )
+    client = QiniuClient(
+        QiniuSettings(api_key="secret", model="deepseek-v3"),
+        http_client=httpx.Client(transport=transport),
+    )
+
+    with pytest.raises(QiniuAIError) as error:
+        client.complete_json([])
+
+    assert error.value.code == "qiniu_provider_connection_error"
+    assert "无法建立" in str(error.value)
+
+
 @pytest.mark.parametrize(
     "content",
     [

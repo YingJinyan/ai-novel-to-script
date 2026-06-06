@@ -273,6 +273,43 @@ describe("workbench", () => {
     expect(screen.getByText(/推荐：适合结构化文本改编与稳定演示/)).toBeInTheDocument();
   });
 
+  it("avoids a slow configured model and explains the slow-model risk", async () => {
+    mockApi(
+      [new Response(JSON.stringify(parsePayload), { status: 200 })],
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "deepseek-v3.1" },
+      ["deepseek-v3.1", "deepseek-v3"],
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    const modelSelect = await screen.findByLabelText("七牛模型");
+    await waitFor(() => expect(modelSelect).toHaveValue("deepseek-v3"));
+    fireEvent.change(modelSelect, { target: { value: "deepseek-v3.1" } });
+
+    expect(screen.getByText(/实测可能等待较久并发生连接中断/)).toBeInTheDocument();
+  });
+
+  it("shows elapsed generation progress while waiting for Qiniu", async () => {
+    const delayedGeneration = new Promise<Response>(() => {});
+    mockApi(
+      [
+        new Response(JSON.stringify(parsePayload), { status: 200 }),
+        delayedGeneration,
+      ],
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "deepseek-v3" },
+      ["deepseek-v3"],
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 生成完整剧本" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("七牛 AI 正在生成");
+    expect(screen.getByRole("status")).toHaveTextContent("正在提交小说与证据单元");
+  });
+
   it("explains extracted story elements and fallback limitations", async () => {
     mockApi([
       new Response(JSON.stringify(parsePayload), { status: 200 }),
