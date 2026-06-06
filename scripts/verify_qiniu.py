@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from backend.pipeline import generate_qiniu_screenplay
+from backend.pipeline import generate_local_screenplay, generate_qiniu_screenplay
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import validate_screenplay
 
@@ -48,6 +48,40 @@ def select_model(models: list[str], requested: str = "", configured: str = "") -
     return recommended or available[0]
 
 
+def verify_full_ai_structure(screenplay: dict, local_screenplay: dict) -> dict[str, int]:
+    """Reject a label-only AI result that is still equivalent to the fallback skeleton."""
+    source = screenplay.get("source", {})
+    story_bible = screenplay.get("story_bible", {})
+    characters = story_bible.get("characters", [])
+    locations = story_bible.get("locations", [])
+    events = screenplay.get("narrative_events", [])
+    scenes = screenplay.get("screenplay", {}).get("scenes", [])
+    beat_count = sum(len(scene.get("beats", [])) for scene in scenes)
+
+    if not characters:
+        raise VerificationError("真实 AI 结果未提取人物，仍像可靠兜底骨架。")
+    if not locations or any(location.get("name") == "未指定场景" for location in locations):
+        raise VerificationError("真实 AI 结果未提取具体地点，仍像可靠兜底骨架。")
+    if len(events) < source.get("chapter_count", 0):
+        raise VerificationError("真实 AI 结果未覆盖全部来源章节事件。")
+    if beat_count <= len(scenes):
+        raise VerificationError("真实 AI 结果仍是每场单个动作的骨架，未完成完整剧本化。")
+    if (
+        story_bible == local_screenplay.get("story_bible")
+        and events == local_screenplay.get("narrative_events")
+        and scenes == local_screenplay.get("screenplay", {}).get("scenes")
+    ):
+        raise VerificationError("真实 AI 结果与可靠兜底结构相同，不能仅凭标签通过验收。")
+
+    return {
+        "character_count": len(characters),
+        "location_count": len(locations),
+        "event_count": len(events),
+        "scene_count": len(scenes),
+        "beat_count": beat_count,
+    }
+
+
 def verify_qiniu(requested_model: str = "") -> dict[str, Any]:
     """Call Qiniu once and return only a non-sensitive verification summary."""
     settings = QiniuSettings.from_env()
@@ -57,6 +91,10 @@ def verify_qiniu(requested_model: str = "") -> dict[str, Any]:
     models = QiniuClient(settings).list_models()
     selected_model = select_model(models, requested_model.strip(), settings.model)
     provider = QiniuClient(settings.with_model(selected_model))
+    local_screenplay = generate_local_screenplay(
+        SAMPLE_NOVEL,
+        title="七牛真实调用验收",
+    ).screenplay
     result = generate_qiniu_screenplay(
         SAMPLE_NOVEL,
         title="七牛真实调用验收",
@@ -78,14 +116,16 @@ def verify_qiniu(requested_model: str = "") -> dict[str, Any]:
         raise VerificationError("生成结果场次数不足，验收失败。")
     if "ai_semantic_review_required" not in warning_codes:
         raise VerificationError("生成结果缺少作者复核警告，验收失败。")
+    structure = verify_full_ai_structure(result.screenplay, local_screenplay)
 
     return {
         "provider": generation["provider"],
         "model": selected_model,
         "available_model_count": len(models),
-        "scene_count": len(scenes),
+        **structure,
         "quality_gate_passed": True,
         "author_review_warning_present": True,
+        "fallback_equivalent": False,
     }
 
 
@@ -107,9 +147,14 @@ def main() -> int:
     print(f"provider={summary['provider']}")
     print(f"model={summary['model']}")
     print(f"available_model_count={summary['available_model_count']}")
+    print(f"character_count={summary['character_count']}")
+    print(f"location_count={summary['location_count']}")
+    print(f"event_count={summary['event_count']}")
     print(f"scene_count={summary['scene_count']}")
+    print(f"beat_count={summary['beat_count']}")
     print("quality_gate_passed=true")
     print("author_review_warning_present=true")
+    print("fallback_equivalent=false")
     return 0
 
 
