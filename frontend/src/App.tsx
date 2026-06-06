@@ -3,11 +3,17 @@ import yaml from "js-yaml";
 import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel, validateScreenplay } from "./api";
 import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
 
-type ResultTab = "script" | "coverage" | "quality" | "yaml";
+type ResultTab = "script" | "bible" | "coverage" | "quality" | "yaml";
 type GenerationMode = "local" | "qiniu";
 type ModelGroup = "recommended" | "general" | "thinking" | "vision";
 
 const issueLabel = { error: "阻断", warning: "注意", info: "信息" };
+const roleLabel: Record<string, string> = {
+  protagonist: "主角",
+  antagonist: "对手",
+  supporting: "配角",
+  minor: "次要人物",
+};
 const SAMPLE_NOVEL = `第一章 雨夜车站
 林夏在雨夜抵达车站，发现长椅下压着一封写给自己的旧信。
 
@@ -39,6 +45,15 @@ const RATIO_METRICS = new Set([
   "source_traceability_coverage",
   "invented_scene_ratio",
 ]);
+const METRIC_LABELS: Record<string, string> = {
+  chapter_coverage: "章节覆盖率",
+  event_coverage: "事件覆盖率",
+  critical_event_coverage: "关键事件覆盖率",
+  must_keep_coverage: "必保事件覆盖率",
+  source_traceability_coverage: "来源可追溯率",
+  invented_scene_ratio: "新增场次比例",
+  target_scene_delta: "目标场次数差值",
+};
 const RECOMMENDED_QINIU_MODELS = [
   "deepseek-v3",
   "deepseek-v3.1",
@@ -82,7 +97,7 @@ function Metric({ name, value }: { name: string; value: number }) {
   const label = isRatio ? `${percentage}%` : String(value);
   return (
     <div className="metric">
-      <div className="metric-row"><span>{name.replaceAll("_", " ")}</span><strong>{label}</strong></div>
+      <div className="metric-row"><span>{METRIC_LABELS[name] ?? name.replaceAll("_", " ")}</span><strong>{label}</strong></div>
       {isRatio && <div className="meter"><i style={{ width: `${Math.max(0, Math.min(100, percentage))}%` }} /></div>}
     </div>
   );
@@ -344,6 +359,8 @@ export default function App() {
   const resultCounts = result
     ? `${result.screenplay.story_bible.characters.length} 人物 · ${result.screenplay.story_bible.locations.length} 地点 · ${result.screenplay.narrative_events.length} 事件 · ${scenes.length} 场次`
     : "";
+  const characters = result?.screenplay.story_bible.characters ?? [];
+  const locations = result?.screenplay.story_bible.locations ?? [];
 
   return (
     <div className="app-shell">
@@ -385,10 +402,12 @@ export default function App() {
         <section className="workspace panel">
           <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></div>}</div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
+            <div className="result-guide"><div><strong>场次与证据</strong><span>阅读剧本，并查看每场依据的原文摘录。</span></div><div><strong>故事要素</strong><span>检查 AI 识别的人物、目标和地点是否准确。</span></div><div><strong>事件覆盖</strong><span>确认三章关键情节没有在改编中遗漏。</span></div><div><strong>交付检查</strong><span>确认 YAML、证据链和覆盖率达到下载条件。</span></div></div>
             <nav className="tabs" aria-label="结果视图">
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>场次与证据 <b>{scenes.length}</b></button>
-              <button className={tab === "coverage" ? "active" : ""} onClick={() => setTab("coverage")}>事件覆盖矩阵</button>
-              <button className={tab === "quality" ? "active" : ""} onClick={() => setTab("quality")}>质量门禁 <b className={activeQualityReport ? activeQualityReport.passed ? "good" : "bad" : "pending"}>{activeQualityReport ? activeQualityReport.passed ? "通过" : "阻断" : "待校验"}</b></button>
+              <button className={tab === "bible" ? "active" : ""} onClick={() => setTab("bible")}>故事要素 <b>{characters.length + locations.length}</b></button>
+              <button className={tab === "coverage" ? "active" : ""} onClick={() => setTab("coverage")}>事件覆盖 <b>{eventCoverage.length}</b></button>
+              <button className={tab === "quality" ? "active" : ""} onClick={() => setTab("quality")}>交付检查 <b className={activeQualityReport ? activeQualityReport.passed ? "good" : "bad" : "pending"}>{activeQualityReport ? activeQualityReport.passed ? "通过" : "阻断" : "待校验"}</b></button>
               <button className={tab === "yaml" ? "active" : ""} onClick={() => setTab("yaml")}>原始 YAML</button>
             </nav>
 
@@ -397,9 +416,11 @@ export default function App() {
               {scenes[selectedScene] && <SceneDetail scene={scenes[selectedScene]} result={result} />}
             </div>}
 
-            {tab === "coverage" && <div className="coverage-view"><div className="section-intro"><h2>事件覆盖矩阵</h2><p>逐个事件检查是否被场次采用，避免同章内遗漏被隐藏。</p></div><div className="coverage-table"><div className="coverage-row head"><span>来源章节</span><span>叙事事件</span><span>关联场次</span><span>状态</span></div>{eventCoverage.map(({ chapter, event, linkedScenes }) => <div className="coverage-row" key={event.id}><span><strong>{chapter?.title ?? event.chapter_id}</strong><small>{event.chapter_id}</small></span><span><strong>{event.id}</strong><small>{event.summary}</small></span><span>{linkedScenes.map((s) => s.id).join(", ") || "—"}</span><span className={linkedScenes.length ? "covered" : "uncovered"}>{linkedScenes.length ? "已覆盖" : "未覆盖"}</span></div>)}</div></div>}
+            {tab === "bible" && <div className="bible-view"><div className="section-intro"><h2>AI 提取的故事要素</h2><p>用于统一人物称呼、人物目标和场景名称。这里为空或只有“未指定场景”，通常说明生成结果仍只是兜底骨架。</p></div>{result.screenplay.story_bible.premise && <div className="premise-card"><span>故事前提</span><p>{result.screenplay.story_bible.premise}</p></div>}<div className="bible-grid"><section><h3>人物 <b>{characters.length}</b></h3>{characters.length ? characters.map((character) => <article className="bible-card" key={character.id}><div><strong>{character.name}</strong><span>{roleLabel[character.role ?? ""] ?? character.role ?? "待确认"}</span></div>{character.aliases?.length ? <small>别名：{character.aliases.join("、")}</small> : null}<p>{character.description || "暂无人物描述"}</p>{character.goal && <footer>目标：{character.goal}</footer>}</article>) : <p className="muted">当前结果没有识别人物。</p>}</section><section><h3>地点 <b>{locations.length}</b></h3>{locations.length ? locations.map((location) => <article className="bible-card" key={location.id}><div><strong>{location.name}</strong><span>{location.id}</span></div><p>{location.description || "暂无地点描述"}</p></article>) : <p className="muted">当前结果没有识别地点。</p>}</section></div></div>}
 
-            {tab === "quality" && activeQualityReport && <div className="quality-view"><div className={`gate ${activeQualityReport.passed ? "pass" : "block"}`}><span>{activeQualityReport.passed ? "✓" : "!"}</span><div><strong>{activeQualityReport.passed ? "质量门禁通过" : "质量门禁阻断"}</strong><p>指标与问题来自后端校验报告。</p></div></div><div className="metric-grid">{Object.entries(activeQualityReport.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>质量问题</h3><IssueList issues={activeQualityReport.issues} /><h3>生成过程问题</h3><IssueList issues={result.issues} /></div>}
+            {tab === "coverage" && <div className="coverage-view"><div className="section-intro"><h2>事件覆盖</h2><p>事件是 AI 从原文中提取的关键情节；这里检查每个事件是否进入至少一个剧本场次，防止改编时漏掉重要内容。</p></div><div className="coverage-table"><div className="coverage-row head"><span>来源章节</span><span>叙事事件</span><span>关联场次</span><span>状态</span></div>{eventCoverage.map(({ chapter, event, linkedScenes }) => <div className="coverage-row" key={event.id}><span><strong>{chapter?.title ?? event.chapter_id}</strong><small>{event.chapter_id}</small></span><span><strong>{event.id}</strong><small>{event.summary}</small></span><span>{linkedScenes.map((s) => s.id).join(", ") || "—"}</span><span className={linkedScenes.length ? "covered" : "uncovered"}>{linkedScenes.length ? "已覆盖" : "未覆盖"}</span></div>)}</div></div>}
+
+            {tab === "quality" && activeQualityReport && <div className="quality-view"><div className={`gate ${activeQualityReport.passed ? "pass" : "block"}`}><span>{activeQualityReport.passed ? "✓" : "!"}</span><div><strong>{activeQualityReport.passed ? "交付检查通过" : "交付检查阻断"}</strong><p>检查 YAML 格式、真实来源证据、章节与事件覆盖；通过不代表 AI 文案无需作者复核。</p></div></div><div className="metric-grid">{Object.entries(activeQualityReport.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>交付问题</h3><IssueList issues={activeQualityReport.issues} /><h3>作者复核提示</h3><IssueList issues={result.issues} /></div>}
             {tab === "quality" && !activeQualityReport && <div className="quality-view"><div className="gate pending"><span>?</span><div><strong>质量门禁待校验</strong><p>当前 YAML 已修改，请重新校验后再判断是否可以交付。</p></div></div></div>}
 
             {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { yamlRevision.current += 1; setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过版本</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}

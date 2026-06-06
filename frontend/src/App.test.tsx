@@ -137,8 +137,10 @@ describe("workbench", () => {
     await screen.findByText("来源证据");
     expect(screen.getByText("可靠兜底骨架")).toBeInTheDocument();
     expect(screen.getByText("“甲”")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /质量门禁/ }));
-    expect(screen.getByText("质量门禁通过")).toBeInTheDocument();
+    expect(screen.getByText("检查 AI 识别的人物、目标和地点是否准确。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /交付检查/ }));
+    expect(screen.getByText("交付检查通过")).toBeInTheDocument();
+    expect(screen.getByText("章节覆盖率")).toBeInTheDocument();
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.getByText("0", { selector: ".metric-row strong" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "原始 YAML" }));
@@ -265,6 +267,24 @@ describe("workbench", () => {
     const modelSelect = await screen.findByLabelText("七牛模型");
     await waitFor(() => expect(modelSelect).toHaveValue("deepseek-v3"));
     expect(screen.getByText(/推荐：适合结构化文本改编与稳定演示/)).toBeInTheDocument();
+  });
+
+  it("explains extracted story elements and fallback limitations", async () => {
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify(generationPayload), { status: 200 }),
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
+    await screen.findByText("来源证据");
+    fireEvent.click(screen.getByRole("button", { name: /故事要素/ }));
+
+    expect(screen.getByText(/这里为空或只有“未指定场景”/)).toBeInTheDocument();
+    expect(screen.getByText("当前结果没有识别人物。")).toBeInTheDocument();
+    expect(screen.getByText("未指定场景")).toBeInTheDocument();
   });
 
   it("sends edited YAML to the backend and displays a blocking report", async () => {

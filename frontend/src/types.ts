@@ -67,8 +67,16 @@ export interface ScreenplayDocument {
   };
   source: { chapter_count: number; total_characters: number; chapters: SourceChapter[] };
   story_bible: {
-    locations: Array<{ id: string; name: string }>;
-    characters: Array<{ id: string; name: string }>;
+    premise?: string;
+    locations: Array<{ id: string; name: string; description?: string }>;
+    characters: Array<{
+      id: string;
+      name: string;
+      aliases?: string[];
+      role?: string;
+      description?: string;
+      goal?: string;
+    }>;
   };
   narrative_events: NarrativeEvent[];
   screenplay: { synopsis: string; scenes: Scene[] };
