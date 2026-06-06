@@ -105,10 +105,10 @@ py -3.10 -m uvicorn backend.main:app --reload
 在设置密钥的同一个 PowerShell 窗口中执行一次真实验收：
 
 ```powershell
-.\scripts\verify-qiniu.ps1 -Model deepseek-v3
+.\scripts\verify-qiniu.ps1
 ```
 
-该脚本会真实调用一次七牛 AI，并检查模型来源、场次数、质量门禁和作者复核警告；只输出非敏感摘要，不输出密钥或 AI 生成正文。若模型不遵守受限输出契约，脚本会如实失败，不会以离线结果冒充 AI 成功。
+该脚本会优先使用当前可用的已配置或推荐文本模型，真实调用一次七牛 AI，并检查模型来源、场次数、质量门禁和作者复核警告；只输出非敏感摘要，不输出密钥或 AI 生成正文。需要指定模型时可追加 `-Model deepseek-v3`。若模型不遵守受限输出契约，脚本会如实失败，不会以离线结果冒充 AI 成功。
 
 ## 质量检查
 
@@ -178,6 +178,8 @@ Schema 将项目元数据、改编约束、来源章节、故事设定、叙事�
 - [PR #10：剧本 YAML 编辑与重新校验](https://github.com/YingJinyan/ai-novel-to-script/pull/10)
 - [PR #11：七牛模型选择引导](https://github.com/YingJinyan/ai-novel-to-script/pull/11)
 - [PR #12：不泄露密钥的七牛真实调用验收工具](https://github.com/YingJinyan/ai-novel-to-script/pull/12)
+- [PR #13：真实七牛与离线备用演示流程](https://github.com/YingJinyan/ai-novel-to-script/pull/13)
+- [PR #14：关闭剧本质量门禁绕过路径](https://github.com/YingJinyan/ai-novel-to-script/pull/14)
 
 ## 原创功能
 

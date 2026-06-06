@@ -8,7 +8,7 @@
 
 ```powershell
 cd D:\job\ai_novel_to_script
-.\scripts\verify-qiniu.ps1 -Model deepseek-v3
+.\scripts\verify-qiniu.ps1
 .\scripts\start-demo.ps1
 ```
 

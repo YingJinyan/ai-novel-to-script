@@ -38,7 +38,7 @@ git log --oneline --all
 在设置新密钥的同一个 PowerShell 窗口运行：
 
 ```powershell
-.\scripts\verify-qiniu.ps1 -Model deepseek-v3
+.\scripts\verify-qiniu.ps1
 ```
 
 只有输出 `PASSED: real Qiniu AI generation completed.` 后，才在 Demo 中声明真实线上调用已经验证。失败时保留错误信息并更换可用文本模型重试，不要用离线结果冒充 AI 成功。
