@@ -110,6 +110,7 @@ function Metric({ name, value }: { name: string; value: number }) {
 
 function SceneDetail({ scene, result }: { scene: Scene; result: GenerationResponse }) {
   const locations = result.screenplay.story_bible?.locations ?? [];
+  const characters = result.screenplay.story_bible?.characters ?? [];
   const location = locations.find((item) => item.id === scene.heading.location_id)?.name ?? scene.heading.location_id;
   const events = (result.screenplay.narrative_events ?? []).filter((event) =>
     scene.traceability.source_event_ids.includes(event.id),
@@ -126,7 +127,11 @@ function SceneDetail({ scene, result }: { scene: Scene; result: GenerationRespon
       <div className="beat-list">
         {scene.beats.map((beat, index) => (
           <div className="beat" key={index}>
-            <span>{beat.type}</span>
+            <div className="beat-meta">
+              <span>{beat.type}</span>
+              {beat.character_id && <strong>{characters.find((item) => item.id === beat.character_id)?.name ?? beat.character_id}</strong>}
+              {beat.parenthetical && <small>{beat.parenthetical}</small>}
+            </div>
             <p>{beat.text}</p>
           </div>
         ))}
