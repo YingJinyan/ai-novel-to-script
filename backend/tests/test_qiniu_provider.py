@@ -220,6 +220,36 @@ def test_full_ai_adaptation_registers_scene_only_location_for_author_review() ->
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
 
 
+def test_full_ai_adaptation_registers_scene_only_character_for_author_review() -> None:
+    class NewCharacterClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            result["scenes"][2]["character_names"].append("Guide")
+            result["scenes"][2]["beats"].append(
+                {
+                    "type": "dialogue",
+                    "text": "请从这里离开。",
+                    "character_name": "Guide",
+                    "parenthetical": "",
+                }
+            )
+            return result
+
+    client = NewCharacterClient()
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    inferred = result.screenplay["story_bible"]["characters"][-1]
+    assert client.calls == 1
+    assert inferred["name"] == "Guide"
+    assert inferred["role"] == "minor"
+    assert result.screenplay["screenplay"]["scenes"][2]["beats"][-1]["character_id"] == inferred["id"]
+    assert "ai_character_review_required" in {issue["code"] for issue in result.issues}
+    assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
 def test_full_ai_adaptation_repairs_missing_structure_once() -> None:
     class RepairClient(FakeQiniuClient):
         calls = 0
