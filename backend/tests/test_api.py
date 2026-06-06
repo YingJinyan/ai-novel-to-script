@@ -127,6 +127,22 @@ def test_cors_allows_local_frontend() -> None:
     assert "access-control-allow-credentials" not in response.headers
 
 
+def test_cors_allows_configured_production_frontend(monkeypatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGINS", "https://screenplay.example.com")
+    configured_client = TestClient(create_app())
+
+    response = configured_client.options(
+        "/api/v1/health",
+        headers={
+            "Origin": "https://screenplay.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://screenplay.example.com"
+
+
 def test_validate_returns_structured_error_for_wrong_root_type() -> None:
     response = client.post(
         "/api/v1/validate",
