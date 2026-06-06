@@ -306,6 +306,32 @@ def test_full_ai_adaptation_warns_when_multiple_events_are_overcompressed() -> N
     assert issue["related_ids"] == ["scene_001", "event_001", "event_002"]
 
 
+def test_full_ai_adaptation_recovers_unmapped_event_with_same_chapter_scene() -> None:
+    class UnmappedEventClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            result = full_adaptation()
+            result["events"].append(
+                {
+                    "chapter_id": "chapter_001",
+                    "summary": "林夏确认旧信来自父亲",
+                    "importance": "major",
+                    "evidence_id": "chapter_001_evidence_001",
+                }
+            )
+            return result
+
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=UnmappedEventClient())
+
+    first_scene = result.screenplay["screenplay"]["scenes"][0]
+    assert first_scene["traceability"]["source_event_ids"] == ["event_001", "event_004"]
+    issue = next(
+        issue for issue in result.issues if issue["code"] == "ai_event_mapping_review_required"
+    )
+    assert "林夏确认旧信来自父亲" in issue["message"]
+    assert issue["related_ids"] == ["event_004", "scene_001"]
+    assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
 def test_full_ai_adaptation_reports_ambiguous_character_with_scene_and_plot_context() -> None:
     class AmbiguousCharacterClient(FakeQiniuClient):
         def complete_json(self, messages: list[dict[str, str]]) -> dict:
@@ -451,17 +477,18 @@ def test_full_ai_adaptation_reports_specific_issue_after_failed_repair() -> None
     assert "characters.0.goal" in str(error.value)
 
 
-def test_full_ai_adaptation_rejects_uncovered_events() -> None:
+def test_full_ai_adaptation_rejects_unmapped_event_without_same_chapter_scene() -> None:
     class IncompleteClient(FakeQiniuClient):
         def complete_json(self, messages: list[dict[str, str]]) -> dict:
             result = full_adaptation()
-            result["scenes"] = result["scenes"][:2]
+            result["scenes"][2]["source_event_numbers"] = [2]
             return result
 
     with pytest.raises(QiniuAIError) as error:
         generate_qiniu_screenplay(NOVEL, "雨夜来信", client=IncompleteClient())
 
     assert error.value.code == "qiniu_provider_output_invalid"
+    assert error.value.diagnostics[0]["code"] == "ai_event_scene_missing"
 
 
 def test_full_ai_adaptation_rejects_unknown_evidence_id() -> None:

@@ -106,8 +106,6 @@ class FullScreenplayAdaptation(BaseModel):
         }
         if not covered_numbers <= valid_numbers:
             raise ValueError("scene references an unknown source event number")
-        if covered_numbers != valid_numbers:
-            raise ValueError("every source event must be covered by at least one scene")
         return self
 
 
@@ -502,6 +500,48 @@ def _build_screenplay(
             }
         )
 
+    scene_event_numbers = [
+        list(dict.fromkeys(scene.source_event_numbers)) for scene in adaptation.scenes
+    ]
+    covered_numbers = {number for numbers in scene_event_numbers for number in numbers}
+    missing_numbers = sorted(set(range(1, len(events) + 1)) - covered_numbers)
+    for event_number in missing_numbers:
+        event = events[event_number - 1]
+        candidate_indices = [
+            scene_index
+            for scene_index, numbers in enumerate(scene_event_numbers)
+            if any(events[number - 1]["chapter_id"] == event["chapter_id"] for number in numbers)
+        ]
+        if not candidate_indices:
+            raise QiniuAIError(
+                "qiniu_provider_output_invalid",
+                f"七牛 AI 事件 {event_number} 未关联场次，且所属章节没有可安全关联的场次。",
+                diagnostics=[
+                    {
+                        "code": "ai_event_scene_missing",
+                        "severity": "error",
+                        "message": (
+                            f"剧情事件“{event['summary']}”没有进入任何场次，且章节 "
+                            f"{event['chapter_id']} 没有可用于复核的场次。建议模型重新拆场。"
+                        ),
+                        "related_ids": [event["id"], event["chapter_id"]],
+                    }
+                ],
+            )
+        scene_index = min(candidate_indices, key=lambda index: len(scene_event_numbers[index]))
+        scene_event_numbers[scene_index].append(event_number)
+        build_issues.append(
+            {
+                "code": "ai_event_mapping_review_required",
+                "severity": "warning",
+                "message": (
+                    f"剧情事件“{event['summary']}”未被模型关联到场次，系统已按同章节关联到"
+                    f"场次 {scene_index + 1}。请作者确认该剧情已在动作或对白中充分呈现。"
+                ),
+                "related_ids": [event["id"], f"scene_{scene_index + 1:03d}"],
+            }
+        )
+
     scenes: list[dict] = []
 
     def resolve_character(name: str, scene_index: int, event_numbers: list[int]) -> str:
@@ -558,6 +598,7 @@ def _build_screenplay(
         return character_id
 
     for index, item in enumerate(adaptation.scenes, start=1):
+        resolved_event_numbers = scene_event_numbers[index - 1]
         exact_location_id = location_lookup.get(_normalized(item.location_name))
         location_id = _resolve_entity_reference(item.location_name, location_lookup)
         if location_id is None:
@@ -595,14 +636,14 @@ def _build_screenplay(
                 }
             )
         event_ids = list(
-            dict.fromkeys(events[number - 1]["id"] for number in item.source_event_numbers)
+            dict.fromkeys(events[number - 1]["id"] for number in resolved_event_numbers)
         )
         source_chapter_ids = list(
-            dict.fromkeys(events[number - 1]["chapter_id"] for number in item.source_event_numbers)
+            dict.fromkeys(events[number - 1]["chapter_id"] for number in resolved_event_numbers)
         )
         character_ids: list[str] = []
         for name in item.character_names:
-            character_id = resolve_character(name, index, item.source_event_numbers)
+            character_id = resolve_character(name, index, resolved_event_numbers)
             if character_id not in character_ids:
                 character_ids.append(character_id)
 
@@ -610,7 +651,7 @@ def _build_screenplay(
         for beat in item.beats:
             converted = {"type": beat.type, "text": beat.text.strip()}
             if beat.type == "dialogue":
-                character_id = resolve_character(beat.character_name, index, item.source_event_numbers)
+                character_id = resolve_character(beat.character_name, index, resolved_event_numbers)
                 converted["character_id"] = character_id
                 if beat.parenthetical.strip():
                     converted["parenthetical"] = beat.parenthetical.strip()
@@ -624,7 +665,7 @@ def _build_screenplay(
                 character_ids.append(character_id)
 
         if len(event_ids) > 1 and len(beats) < len(event_ids) * 3:
-            event_summaries = [events[number - 1]["summary"] for number in item.source_event_numbers]
+            event_summaries = [events[number - 1]["summary"] for number in resolved_event_numbers]
             build_issues.append(
                 {
                     "code": "ai_scene_compression_review_required",
