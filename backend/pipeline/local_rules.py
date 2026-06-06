@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 
 MIN_CHAPTERS = 3
+MAX_GENERATION_CHAPTERS = 100
 MAX_SOURCE_CHARACTERS = 100_000
 SUMMARY_LIMIT = 80
 EVIDENCE_LIMIT = 200
@@ -212,6 +213,15 @@ def analyze_chapters(novel_text: str) -> ChapterParseResult:
                 [chapter.id for chapter in chapters],
             )
         )
+    if len(chapters) > MAX_GENERATION_CHAPTERS:
+        issues.append(
+            _issue(
+                "chapter_count_too_high",
+                f"本地规则模式最多生成 {MAX_GENERATION_CHAPTERS} 个章节，"
+                f"当前识别到 {len(chapters)} 个。",
+                [chapter.id for chapter in chapters],
+            )
+        )
 
     title_counts = Counter(_chapter_subject(chapter.title) for chapter in chapters)
     for title, count in title_counts.items():
@@ -262,7 +272,7 @@ def analyze_chapters(novel_text: str) -> ChapterParseResult:
         issues=tuple(issues),
         eligible=eligible,
         preamble=preamble,
-        total_characters=sum(len(chapter.text) for chapter in chapters),
+        total_characters=len(source),
     )
 
 

@@ -10,6 +10,17 @@ from scripts.validate_example import load_example_source_texts
 
 client = TestClient(create_app())
 
+NOVEL = """作品信息
+第一章 雨夜
+林夏来到车站。
+
+第二章 旧信
+她发现了一封旧信。
+
+第三章 真相
+天亮后，真相终于揭晓。
+"""
+
 
 def load_example() -> dict:
     response = client.get("/api/v1/example")
@@ -126,3 +137,210 @@ def test_validate_returns_structured_error_for_wrong_root_type() -> None:
     assert response.json()["passed"] is False
     assert response.json()["metrics"] == {}
     assert response.json()["issues"][0]["code"] == "schema_validation_error"
+
+
+def test_parse_project_returns_serializable_chapters_and_warnings() -> None:
+    response = client.post("/api/v1/projects/parse", json={"novel_text": NOVEL})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is True
+    assert payload["preamble"] == "作品信息"
+    assert [chapter["id"] for chapter in payload["chapters"]] == [
+        "chapter_001",
+        "chapter_002",
+        "chapter_003",
+    ]
+    assert payload["chapters"][0]["text"] == "林夏来到车站。"
+    assert payload["total_characters"] == len(NOVEL)
+    assert {issue["code"] for issue in payload["issues"]} == {"preamble_ignored"}
+
+
+def test_parse_project_returns_200_with_partial_result_below_three_chapters() -> None:
+    response = client.post(
+        "/api/v1/projects/parse",
+        json={"novel_text": "第一章 开始\n正文一。\n第二章 继续\n正文二。"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is False
+    assert len(payload["chapters"]) == 2
+    assert payload["issues"][-1]["code"] == "chapter_count_too_low"
+    assert payload["issues"][-1]["related_ids"] == ["chapter_001", "chapter_002"]
+
+
+def test_parse_project_returns_200_with_empty_chapter_issue() -> None:
+    response = client.post(
+        "/api/v1/projects/parse",
+        json={
+            "novel_text": (
+                "第一章 开始\n正文一。\n"
+                "第二章 空章\n"
+                "第三章 结束\n正文三。"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is False
+    empty_issue = next(issue for issue in payload["issues"] if issue["code"] == "empty_chapter")
+    assert empty_issue["related_ids"] == ["chapter_002"]
+
+
+def test_generate_local_returns_screenplay_sources_issues_and_quality_report() -> None:
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": NOVEL, "title": "雨夜真相"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["screenplay"]["project"]["title"] == "雨夜真相"
+    assert len(payload["screenplay"]["screenplay"]["scenes"]) == 3
+    assert set(payload["source_texts"]) == {
+        "chapter_001",
+        "chapter_002",
+        "chapter_003",
+    }
+    assert payload["quality_report"]["passed"] is True
+    assert payload["quality_report"]["metrics"]["source_traceability_coverage"] == 1.0
+
+
+def test_generate_local_rejects_below_three_chapters_with_pipeline_error() -> None:
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": "第一章 开始\n正文一。\n第二章 继续\n正文二。"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "chapter_count_too_low"
+    assert response.json()["related_ids"] == ["chapter_001", "chapter_002"]
+
+
+def test_generate_local_rejects_empty_chapter_with_pipeline_error() -> None:
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={
+            "novel_text": (
+                "第一章 开始\n正文一。\n"
+                "第二章 空章\n"
+                "第三章 结束\n正文三。"
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "empty_chapter"
+    assert response.json()["related_ids"] == ["chapter_002"]
+
+
+def test_generate_local_rejects_source_over_character_limit() -> None:
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": "甲" * 100_001},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "source_text_too_long"
+
+
+def test_parse_normalizes_bom_before_enforcing_character_limit() -> None:
+    novel = "\ufeff" + NOVEL + "甲" * (100_000 - len(NOVEL))
+
+    response = client.post("/api/v1/projects/parse", json={"novel_text": novel})
+
+    assert response.status_code == 200
+    assert response.json()["total_characters"] == 100_000
+
+
+def test_project_endpoints_reject_unknown_request_fields() -> None:
+    parse_response = client.post(
+        "/api/v1/projects/parse",
+        json={"novel_text": NOVEL, "unexpected": True},
+    )
+    generation_response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": NOVEL, "unexpected": True},
+    )
+
+    assert parse_response.status_code == 422
+    assert parse_response.json()["code"] == "invalid_request"
+    assert generation_response.status_code == 422
+    assert generation_response.json()["code"] == "invalid_request"
+
+
+def test_generate_local_rejects_more_than_one_hundred_chapters() -> None:
+    novel = "\n".join(f"第{i}章 标题\n正文。" for i in range(1, 102))
+
+    parse_response = client.post("/api/v1/projects/parse", json={"novel_text": novel})
+    generation_response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": novel},
+    )
+
+    assert parse_response.status_code == 200
+    assert len(parse_response.json()["chapters"]) == 101
+    assert "chapter_count_too_high" in {
+        issue["code"] for issue in parse_response.json()["issues"]
+    }
+    assert generation_response.status_code == 422
+    assert generation_response.json()["code"] == "chapter_count_too_high"
+
+
+def test_successful_generation_always_passes_quality_gate() -> None:
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": NOVEL},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["quality_report"]["passed"] is True
+
+
+def test_generation_quality_gate_failure_returns_diagnostics(monkeypatch) -> None:
+    report = {
+        "passed": False,
+        "metrics": {"source_traceability_coverage": 0.0},
+        "issues": [
+            {
+                "code": "evidence_validation_error",
+                "severity": "error",
+                "message": "Evidence does not match source.",
+                "related_ids": ["event_001"],
+            }
+        ],
+    }
+    monkeypatch.setattr("backend.routes.validate_screenplay", lambda *_: report)
+
+    response = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": NOVEL},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "generated_screenplay_failed_quality_gate"
+    assert response.json()["quality_report"] == report
+
+
+def test_openapi_documents_project_error_response_and_text_limit() -> None:
+    openapi = client.get("/openapi.json").json()
+
+    assert (
+        openapi["paths"]["/api/v1/projects/parse"]["post"]["responses"]["422"]["content"]
+        ["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/ErrorResponse"
+    )
+    assert (
+        openapi["components"]["schemas"]["NovelTextRequest"]["properties"]["novel_text"][
+            "maxLength"
+        ]
+        == 100_000
+    )
+    assert (
+        openapi["paths"]["/api/v1/projects/generate-local"]["post"]["responses"]["500"][
+            "content"
+        ]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/QualityGateErrorResponse"
+    )

@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.models import ErrorResponse
+from backend.models import ErrorResponse, MAX_SOURCE_CHARACTERS
 from backend.routes import router
 
 
@@ -35,9 +35,18 @@ def create_app() -> FastAPI:
     async def request_validation_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        novel_too_long = any(
+            error["type"] == "string_too_long"
+            and tuple(error["loc"][-2:]) == ("body", "novel_text")
+            for error in exc.errors()
+        )
         error = ErrorResponse(
-            code="invalid_request",
-            message="Request body does not match the API contract.",
+            code="source_text_too_long" if novel_too_long else "invalid_request",
+            message=(
+                f"Novel text cannot exceed {MAX_SOURCE_CHARACTERS} normalized characters."
+                if novel_too_long
+                else "Request body does not match the API contract."
+            ),
             related_ids=[],
         )
         return JSONResponse(status_code=422, content=error.model_dump())
