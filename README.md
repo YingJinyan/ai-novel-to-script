@@ -222,6 +222,10 @@ Schema 将项目元数据、改编约束、来源章节、故事设定、叙事�
 
 最终提交操作见 [作品提交清单](docs/submission-checklist.md)。
 
+## demo视频
+
+demo演示链接：https://www.bilibili.com/video/BV1D1EW6eEDs/
+
 ## License
 
 本项目用于七牛云实训营作品开发。未经作者许可，不得复制或用于其他参赛作品。
