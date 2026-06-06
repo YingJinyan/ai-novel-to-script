@@ -144,6 +144,26 @@
           "minimum": 3,
           "maximum": 100
         },
+        "scene_count_range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 100
+            },
+            "maximum": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 100
+            }
+          }
+        },
         "focus": {
           "type": "array",
           "uniqueItems": true,

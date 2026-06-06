@@ -394,6 +394,8 @@ def _build_screenplay(
     evidence_candidates: list[dict],
     model: str,
     target_scene_count: int,
+    minimum_scenes: int,
+    maximum_scenes: int,
     build_issues: list[dict] | None = None,
 ) -> dict:
     screenplay = copy.deepcopy(local_result.screenplay)
@@ -718,6 +720,10 @@ def _build_screenplay(
         "fallback_reason": "",
     }
     screenplay["adaptation_control"]["target_scene_count"] = target_scene_count
+    screenplay["adaptation_control"]["scene_count_range"] = {
+        "minimum": minimum_scenes,
+        "maximum": maximum_scenes,
+    }
     screenplay["adaptation_control"]["must_keep_event_ids"] = critical_event_ids
     screenplay["story_bible"] = {
         "premise": adaptation.premise.strip(),
@@ -803,6 +809,8 @@ def generate_qiniu_screenplay(
                 evidence_candidates,
                 provider.settings.model,
                 target_scene_count,
+                minimum_scenes,
+                maximum_scenes,
                 build_issues,
             )
             break

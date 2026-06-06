@@ -72,6 +72,13 @@ def validate_references(screenplay: dict) -> list[str]:
     for event_id in sorted(unknown_must_keep):
         issues.append(f"adaptation_control references unknown must-keep event {event_id}")
 
+    scene_count_range = screenplay["adaptation_control"].get("scene_count_range")
+    if (
+        scene_count_range
+        and scene_count_range["minimum"] > scene_count_range["maximum"]
+    ):
+        issues.append("adaptation_control scene count minimum cannot exceed maximum")
+
     covered_event_ids: set[str] = set()
     for scene in scenes:
         heading = scene["heading"]
@@ -342,14 +349,33 @@ def build_quality_report(
                 "related_ids": [event_id],
             }
         )
-    target_scene_count = screenplay["adaptation_control"]["target_scene_count"]
-    if len(scenes) != target_scene_count:
+    adaptation_control = screenplay["adaptation_control"]
+    target_scene_count = adaptation_control["target_scene_count"]
+    scene_count_range = adaptation_control.get("scene_count_range")
+    if scene_count_range:
+        minimum_scenes = scene_count_range["minimum"]
+        maximum_scenes = scene_count_range["maximum"]
+        scene_count_delta = (
+            len(scenes) - minimum_scenes
+            if len(scenes) < minimum_scenes
+            else len(scenes) - maximum_scenes
+            if len(scenes) > maximum_scenes
+            else 0
+        )
+        scene_count_satisfied = scene_count_delta == 0
+        scene_count_expectation = f"{minimum_scenes}-{maximum_scenes}"
+    else:
+        scene_count_delta = len(scenes) - target_scene_count
+        scene_count_satisfied = scene_count_delta == 0
+        scene_count_expectation = str(target_scene_count)
+
+    if not scene_count_satisfied:
         issues.append(
             {
                 "code": "target_scene_count_mismatch",
                 "severity": "info",
                 "message": (
-                    f"Expected {target_scene_count} scenes but found {len(scenes)}."
+                    f"期望场次数为 {scene_count_expectation}，实际生成 {len(scenes)} 场。"
                 ),
                 "related_ids": [],
             }
@@ -374,7 +400,7 @@ def build_quality_report(
             "invented_scene_ratio": (
                 round(len(invented_scenes) / scene_count, 3) if scene_count else 0.0
             ),
-            "target_scene_delta": len(scenes) - target_scene_count,
+            "target_scene_delta": scene_count_delta,
         },
         "issues": issues,
     }

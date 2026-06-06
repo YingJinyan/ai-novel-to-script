@@ -401,6 +401,15 @@ def test_balanced_scene_density_repairs_an_overcompressed_result() -> None:
     assert client.calls == 2
     assert len(result.screenplay["screenplay"]["scenes"]) == 5
     assert result.screenplay["adaptation_control"]["target_scene_count"] == 7
+    assert result.screenplay["adaptation_control"]["scene_count_range"] == {
+        "minimum": 5,
+        "maximum": 9,
+    }
+    report = validate_screenplay(result.screenplay, result.source_texts)
+    assert report["metrics"]["target_scene_delta"] == 0
+    assert "target_scene_count_mismatch" not in {
+        issue["code"] for issue in report["issues"]
+    }
 
 
 def test_chinese_source_repairs_a_predominantly_english_adaptation() -> None:
