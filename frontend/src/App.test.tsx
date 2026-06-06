@@ -247,6 +247,8 @@ describe("workbench", () => {
     expect(aiMode).toHaveClass("selected");
     expect(screen.getByText("当前将使用七牛 AI 完整剧本化")).toBeInTheDocument();
     expect(screen.getByText(/AI 会尝试识别人物与说话人/)).toBeInTheDocument();
+    expect(screen.getByLabelText("改编详略")).toHaveValue("balanced");
+    fireEvent.change(screen.getByLabelText("改编详略"), { target: { value: "detailed" } });
     fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 生成完整剧本" }));
 
     await screen.findByText("来源证据");
@@ -259,6 +261,7 @@ describe("workbench", () => {
     );
     expect(JSON.parse(String(aiRequest?.[1]?.body))).toMatchObject({
       model: "configured-model",
+      scene_density: "detailed",
     });
   });
 

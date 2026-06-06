@@ -61,11 +61,17 @@ export const generateLocal = (novelText: string, title: string) =>
     title,
   });
 
-export const generateAI = (novelText: string, title: string, model: string) =>
+export const generateAI = (
+  novelText: string,
+  title: string,
+  model: string,
+  sceneDensity: "concise" | "balanced" | "detailed",
+) =>
   post<GenerationResponse>("/api/v1/projects/generate-ai", {
     novel_text: novelText,
     title,
     model,
+    scene_density: sceneDensity,
   });
 
 export const validateScreenplay = (

@@ -5,6 +5,7 @@ import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } f
 
 type ResultTab = "script" | "bible" | "coverage" | "quality" | "yaml";
 type GenerationMode = "local" | "qiniu";
+type SceneDensity = "concise" | "balanced" | "detailed";
 type ModelGroup = "recommended" | "general" | "slow" | "thinking" | "vision";
 
 const issueLabel = { error: "阻断", warning: "注意", info: "信息" };
@@ -163,6 +164,7 @@ export default function App() {
   const [generationMode, setGenerationMode] = useState<GenerationMode>("local");
   const [qiniuModels, setQiniuModels] = useState<string[]>([]);
   const [selectedQiniuModel, setSelectedQiniuModel] = useState("");
+  const [sceneDensity, setSceneDensity] = useState<SceneDensity>("balanced");
   const [providerMessage, setProviderMessage] = useState("");
   const [providerLoading, setProviderLoading] = useState(false);
   const [yamlDraft, setYamlDraft] = useState("");
@@ -255,7 +257,7 @@ export default function App() {
     const requestedRevision = sourceRevision.current;
     try {
       const generated = generationMode === "qiniu"
-        ? await generateAI(novelText, title.trim(), selectedQiniuModel)
+        ? await generateAI(novelText, title.trim(), selectedQiniuModel, sceneDensity)
         : await generateLocal(novelText, title.trim());
       if (requestedRevision === sourceRevision.current) {
         setResult(generated); setSelectedScene(0); setTab("script");
@@ -421,7 +423,7 @@ export default function App() {
               <div className="provider-picker"><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !selectedQiniuModel} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI · 完整剧本化</strong><span>{selectedQiniuModel ? `${selectedQiniuModel} · 人物、地点、事件、场次与对白` : "未读取到可用模型"}</span></button><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>可靠兜底</strong><span>不调用 AI，只生成可追溯骨架且不冒充 AI</span></button></div>
               <div className="mode-guidance">{generationMode === "qiniu" ? <><strong>当前将使用七牛 AI 完整剧本化</strong><span>上方对白提示只是输入复核项；AI 会尝试识别人物与说话人，生成后请在“故事要素”中确认。</span></> : <><strong>当前将使用可靠兜底</strong><span>该模式不会推断人物或说话人，只生成可追溯骨架。</span></>}</div>
               <div className="model-picker"><label>七牛模型<select disabled={!!loading || providerLoading || !qiniuModels.length} value={selectedQiniuModel} onChange={(event) => { setSelectedQiniuModel(event.target.value); if (generationMode === "qiniu") setResult(null); }}>{qiniuModels.length ? <><optgroup label="推荐用于小说改编">{qiniuModelGroups.recommended.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="通用文本模型">{qiniuModelGroups.general.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="慢模型（不建议演示）">{qiniuModelGroups.slow.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="推理模型（可能较慢）">{qiniuModelGroups.thinking.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="视觉模型（当前任务不推荐）">{qiniuModelGroups.vision.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup></> : <option value="">暂无可用模型</option>}</select></label><button className="text-button" disabled={providerLoading || !!loading} onClick={() => void refreshQiniuProvider()}>{providerLoading ? "读取中…" : "刷新七牛模型"}</button><span>{providerMessage} {selectedQiniuModel && modelGuidance(selectedQiniuModel)}</span></div>
-              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? `正在生成 · ${generationSeconds} 秒` : generationMode === "qiniu" ? "使用七牛 AI 生成完整剧本" : "使用可靠兜底生成骨架"}</button></div>
+              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label>{generationMode === "qiniu" && <label>改编详略<select aria-label="改编详略" disabled={!!loading} value={sceneDensity} onChange={(event) => { setSceneDensity(event.target.value as SceneDensity); setResult(null); }}><option value="concise">精炼 · 3-5 场</option><option value="balanced">均衡 · 5-9 场</option><option value="detailed">详细 · 8-15 场</option></select></label>}<button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? `正在生成 · ${generationSeconds} 秒` : generationMode === "qiniu" ? "使用七牛 AI 生成完整剧本" : "使用可靠兜底生成骨架"}</button></div>
             </>}
           </div>
         </section>

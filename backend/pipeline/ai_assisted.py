@@ -20,6 +20,11 @@ from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 
 
 MAX_AI_SOURCE_CHARACTERS = 30_000
+SCENE_DENSITY_RANGES = {
+    "concise": (3, 5),
+    "balanced": (5, 9),
+    "detailed": (8, 15),
+}
 
 
 class AICharacter(BaseModel):
@@ -137,7 +142,12 @@ def _evidence_candidates(local_result: PipelineResult) -> list[dict]:
     return candidates
 
 
-def _prompt(local_result: PipelineResult, evidence_candidates: list[dict]) -> list[dict[str, str]]:
+def _prompt(
+    local_result: PipelineResult,
+    evidence_candidates: list[dict],
+    scene_density: str = "concise",
+) -> list[dict[str, str]]:
+    minimum_scenes, maximum_scenes = SCENE_DENSITY_RANGES[scene_density]
     chapters = [
         {"id": chapter["id"], "title": chapter["title"]}
         for chapter in local_result.screenplay["source"]["chapters"]
@@ -207,7 +217,8 @@ def _prompt(local_result: PipelineResult, evidence_candidates: list[dict]) -> li
         {
             "role": "user",
             "content": (
-                "请生成完整剧本化改编。建议总场次数为 6 到 12，单场 3 到 10 个节拍，"
+                f"请生成完整剧本化改编。本次要求总场次数为 {minimum_scenes} 到 {maximum_scenes}，"
+                "单场 3 到 10 个节拍，"
                 "优先提取对话与地点、时间变化，不要机械地一章只生成一场。"
                 "每个来源事件都必须在关联场次的动作或对白中被明确演出来，"
                 "不能只填写 source_event_numbers 来声称覆盖；不同地点、时间或冲突阶段应拆成不同场次。\n"
@@ -333,6 +344,7 @@ def _build_screenplay(
     adaptation: FullScreenplayAdaptation,
     evidence_candidates: list[dict],
     model: str,
+    target_scene_count: int,
     build_issues: list[dict] | None = None,
 ) -> dict:
     screenplay = copy.deepcopy(local_result.screenplay)
@@ -613,7 +625,7 @@ def _build_screenplay(
         "mode": "qiniu_ai",
         "fallback_reason": "",
     }
-    screenplay["adaptation_control"]["target_scene_count"] = len(scenes)
+    screenplay["adaptation_control"]["target_scene_count"] = target_scene_count
     screenplay["adaptation_control"]["must_keep_event_ids"] = critical_event_ids
     screenplay["story_bible"] = {
         "premise": adaptation.premise.strip(),
@@ -632,6 +644,7 @@ def generate_qiniu_screenplay(
     novel_text: str,
     title: str,
     model: str = "",
+    scene_density: Literal["concise", "balanced", "detailed"] = "concise",
     client: QiniuClient | None = None,
 ) -> PipelineResult:
     """Generate a full AI screenplay while keeping evidence positions deterministic."""
@@ -645,7 +658,9 @@ def generate_qiniu_screenplay(
     evidence_candidates = _evidence_candidates(local_result)
     settings = QiniuSettings.from_env()
     provider = client or QiniuClient(settings.with_model(model) if model.strip() else settings)
-    messages = _prompt(local_result, evidence_candidates)
+    minimum_scenes, maximum_scenes = SCENE_DENSITY_RANGES[scene_density]
+    target_scene_count = round((minimum_scenes + maximum_scenes) / 2)
+    messages = _prompt(local_result, evidence_candidates, scene_density)
     output = provider.complete_json(messages)
     feedback = ""
     diagnostics: list[dict] = []
@@ -654,12 +669,32 @@ def generate_qiniu_screenplay(
     for attempt in range(2):
         try:
             adaptation = FullScreenplayAdaptation.model_validate(output)
+            if not minimum_scenes <= len(adaptation.scenes) <= maximum_scenes:
+                raise QiniuAIError(
+                    "qiniu_provider_output_invalid",
+                    (
+                        f"七牛 AI 返回 {len(adaptation.scenes)} 个场次，不符合本次"
+                        f"“{scene_density}”详略要求的 {minimum_scenes}-{maximum_scenes} 个场次。"
+                    ),
+                    diagnostics=[
+                        {
+                            "code": "ai_scene_density_not_satisfied",
+                            "severity": "error",
+                            "message": (
+                                f"本次改编详略要求 {minimum_scenes}-{maximum_scenes} 个场次，"
+                                f"模型实际返回 {len(adaptation.scenes)} 个。系统将要求模型重新拆场。"
+                            ),
+                            "related_ids": [],
+                        }
+                    ],
+                )
             build_issues.clear()
             screenplay = _build_screenplay(
                 local_result,
                 adaptation,
                 evidence_candidates,
                 provider.settings.model,
+                target_scene_count,
                 build_issues,
             )
             break

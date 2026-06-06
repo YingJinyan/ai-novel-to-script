@@ -540,8 +540,9 @@ def test_generate_ai_passes_user_selected_model_to_provider_pipeline(monkeypatch
 
     captured: dict = {}
 
-    def fake_generate(novel_text: str, title: str, model: str):
+    def fake_generate(novel_text: str, title: str, model: str, scene_density: str):
         captured["model"] = model
+        captured["scene_density"] = scene_density
         return generate_local_screenplay(novel_text, title=title)
 
     monkeypatch.setattr("backend.routes.generate_qiniu_screenplay", fake_generate)
@@ -551,8 +552,10 @@ def test_generate_ai_passes_user_selected_model_to_provider_pipeline(monkeypatch
             "novel_text": NOVEL,
             "title": "七牛润色",
             "model": "deepseek-v3",
+            "scene_density": "detailed",
         },
     )
 
     assert response.status_code == 200
     assert captured["model"] == "deepseek-v3"
+    assert captured["scene_density"] == "detailed"

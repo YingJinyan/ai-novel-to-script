@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 
 import httpx
@@ -103,9 +104,9 @@ def test_evidence_candidates_merge_adjacent_sentences_without_losing_source_posi
 
 def test_ai_prompt_requires_explicit_event_dramatization() -> None:
     result = generate_local_screenplay(NOVEL)
-    messages = _prompt(result, _evidence_candidates(result))
+    messages = _prompt(result, _evidence_candidates(result), "balanced")
 
-    assert "建议总场次数为 6 到 12" in messages[1]["content"]
+    assert "本次要求总场次数为 5 到 9" in messages[1]["content"]
     assert "每个来源事件都必须在关联场次的动作或对白中被明确演出来" in messages[1]["content"]
     assert "不能只填写 source_event_numbers 来声称覆盖" in messages[1]["content"]
 
@@ -346,6 +347,32 @@ def test_full_ai_adaptation_repairs_missing_structure_once() -> None:
 
     assert client.calls == 2
     assert result.screenplay["story_bible"]["characters"][0]["goal"] == "找到录音并公开真相。"
+
+
+def test_balanced_scene_density_repairs_an_overcompressed_result() -> None:
+    class DensityRepairClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            if self.calls == 2:
+                result["scenes"].extend(
+                    [copy.deepcopy(result["scenes"][1]), copy.deepcopy(result["scenes"][2])]
+                )
+            return result
+
+    client = DensityRepairClient()
+    result = generate_qiniu_screenplay(
+        NOVEL,
+        "雨夜来信",
+        scene_density="balanced",
+        client=client,
+    )
+
+    assert client.calls == 2
+    assert len(result.screenplay["screenplay"]["scenes"]) == 5
+    assert result.screenplay["adaptation_control"]["target_scene_count"] == 7
 
 
 def test_full_ai_adaptation_reports_specific_issue_after_failed_repair() -> None:

@@ -203,6 +203,7 @@ def generate_project_ai(
             request.novel_text,
             title=request.title,
             model=request.model,
+            scene_density=request.scene_density,
         )
     except QiniuAIError as exc:
         status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502

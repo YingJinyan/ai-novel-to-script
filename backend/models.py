@@ -80,6 +80,7 @@ class LocalGenerationRequest(NovelTextRequest):
 
 class AIGenerationRequest(LocalGenerationRequest):
     model: str = Field(default="", max_length=200)
+    scene_density: Literal["concise", "balanced", "detailed"] = "concise"
 
 
 class ParsedChapter(BaseModel):
