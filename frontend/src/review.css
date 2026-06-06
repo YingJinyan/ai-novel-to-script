@@ -110,6 +110,110 @@
   grid-column: 1 / -1;
 }
 
+.result-guide {
+  background: #f4efe6;
+  border-bottom: 1px solid #ded6c8;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.result-guide div {
+  border-right: 1px solid #ded6c8;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+}
+
+.result-guide div:last-child {
+  border-right: 0;
+}
+
+.result-guide strong {
+  color: #183044;
+  font-size: 10px;
+}
+
+.result-guide span {
+  color: #85817a;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.bible-view {
+  padding: 28px;
+}
+
+.premise-card {
+  background: #fff7e7;
+  border: 1px solid #e8ca91;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+}
+
+.premise-card span {
+  color: #a06d21;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.premise-card p {
+  font: 600 12px/1.8 "Noto Serif SC";
+  margin: 7px 0 0;
+}
+
+.bible-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.bible-grid h3 {
+  border-bottom: 1px solid #ded6c8;
+  font-size: 13px;
+  margin: 0 0 10px;
+  padding-bottom: 9px;
+}
+
+.bible-grid h3 b {
+  background: #ece6dc;
+  font-size: 9px;
+  margin-left: 5px;
+  padding: 2px 5px;
+}
+
+.bible-card {
+  border: 1px solid #ded6c8;
+  margin-bottom: 9px;
+  padding: 12px;
+}
+
+.bible-card div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.bible-card strong {
+  color: #183044;
+  font-size: 12px;
+}
+
+.bible-card span,
+.bible-card small,
+.bible-card footer {
+  color: #a06d21;
+  font-size: 9px;
+}
+
+.bible-card p {
+  color: #69757d;
+  font-size: 10px;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+
 .yaml-view textarea {
   background: #0c1d2b;
   border: 0;
@@ -159,5 +263,13 @@
   .download-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .bible-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .result-guide {
+    grid-template-columns: 1fr 1fr;
   }
 }
