@@ -43,6 +43,14 @@ git log --oneline --all
 
 只有输出 `PASSED: real Qiniu AI generation completed.` 后，才在 Demo 中声明真实线上调用已经验证。失败时保留错误信息并更换可用文本模型重试，不要用离线结果冒充 AI 成功。
 
+验收通过后，继续在同一个 PowerShell 窗口运行：
+
+```powershell
+.\scripts\start-demo.ps1
+```
+
+这样演示后端才能继承新密钥。录制结束后运行 `.\scripts\stop-demo.ps1`。
+
 如果未完成真实线上验证，Demo 只展示离线规则模式，并诚实说明七牛接口已实现但待密钥验证。
 
 ### 2. 录制 Demo 视频

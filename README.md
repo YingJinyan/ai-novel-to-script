@@ -177,6 +177,7 @@ Schema 将项目元数据、改编约束、来源章节、故事设定、叙事�
 - [PR #9：七牛可用模型发现与选择](https://github.com/YingJinyan/ai-novel-to-script/pull/9)
 - [PR #10：剧本 YAML 编辑与重新校验](https://github.com/YingJinyan/ai-novel-to-script/pull/10)
 - [PR #11：七牛模型选择引导](https://github.com/YingJinyan/ai-novel-to-script/pull/11)
+- [PR #12：不泄露密钥的七牛真实调用验收工具](https://github.com/YingJinyan/ai-novel-to-script/pull/12)
 
 ## 原创功能
 
