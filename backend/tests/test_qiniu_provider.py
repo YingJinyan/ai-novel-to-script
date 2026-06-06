@@ -5,7 +5,8 @@ import json
 import httpx
 import pytest
 
-from backend.pipeline.ai_assisted import generate_qiniu_screenplay
+from backend.pipeline.ai_assisted import _evidence_candidates, generate_qiniu_screenplay
+from backend.pipeline.local_rules import generate_local_screenplay
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import validate_screenplay
 
@@ -21,20 +22,52 @@ NOVEL = """第一章 雨夜
 """
 
 
-def enhancements() -> dict:
-    evidence_quotes = [
-        "林夏抵达车站，发现一封旧信。",
-        "旧信指向站长室里的时刻表。",
-        "林夏找到录音，并决定公开真相。",
-    ]
+def full_adaptation() -> dict:
     return {
         "logline": "一封旧信引导林夏在天亮前找出真相。",
+        "premise": "林夏循着旧信，在废弃车站追查被隐藏的真相。",
         "synopsis": "林夏循着旧信留下的线索，在车站找到被隐藏的录音。",
+        "characters": [
+            {
+                "name": "林夏",
+                "aliases": [],
+                "role": "protagonist",
+                "description": "追查旧信真相的年轻人。",
+                "goal": "找到录音并公开真相。",
+            }
+        ],
+        "locations": [
+            {"name": "废弃车站", "description": "林夏发现旧信的车站。"},
+            {"name": "站长室", "description": "藏有时刻表和录音的房间。"},
+        ],
+        "events": [
+            {
+                "chapter_id": f"chapter_{index:03d}",
+                "summary": summary,
+                "importance": "critical" if index == 1 else "major",
+                "evidence_id": f"chapter_{index:03d}_evidence_001",
+            }
+            for index, summary in enumerate(
+                ["林夏发现旧信", "旧信指向时刻表", "林夏找到录音并公开真相"],
+                start=1,
+            )
+        ],
         "scenes": [
             {
-                "scene_id": f"scene_{index:03d}",
+                "int_ext": "INT",
+                "location_name": "废弃车站" if index == 1 else "站长室",
+                "time_of_day": "夜",
                 "purpose": f"推进第 {index} 个来源事件。",
-                "action_text": f"{evidence_quotes[index - 1]} 镜头停留在关键线索上。",
+                "character_names": ["林夏"],
+                "source_event_numbers": [index],
+                "beats": [
+                    {
+                        "type": "action",
+                        "text": f"林夏以可表演动作推进事件 {index}。",
+                        "character_name": "",
+                        "parenthetical": "",
+                    }
+                ],
             }
             for index in range(1, 4)
         ],
@@ -46,8 +79,26 @@ class FakeQiniuClient:
 
     def complete_json(self, messages: list[dict[str, str]]) -> dict:
         assert messages[0]["role"] == "system"
-        assert "不得修改 scene_id" in messages[0]["content"]
-        return enhancements()
+        assert "证据单元" in messages[0]["content"]
+        assert "evidence_id" in messages[1]["content"]
+        return full_adaptation()
+
+
+def test_evidence_candidates_merge_adjacent_sentences_without_losing_source_positions() -> None:
+    result = generate_local_screenplay(
+        "第一章 一\n第一句很短。第二句也很短。\n"
+        "第二章 二\n第三句。\n"
+        "第三章 三\n第四句。"
+    )
+
+    candidates = _evidence_candidates(result)
+    first = candidates[0]
+
+    assert first["quote"] == "第一句很短。第二句也很短。"
+    assert (
+        result.source_texts[first["chapter_id"]][first["start_char"]:first["end_char"]]
+        == first["quote"]
+    )
 
 
 def test_qiniu_client_uses_json_object_contract_without_leaking_key() -> None:
@@ -93,7 +144,7 @@ def test_qiniu_client_requires_explicit_key_and_model() -> None:
     assert "super-secret" not in repr(error.value)
 
 
-def test_ai_refinement_preserves_traceability_and_passes_quality_gate() -> None:
+def test_full_ai_adaptation_extracts_structure_and_passes_quality_gate() -> None:
     result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=FakeQiniuClient())
 
     assert result.screenplay["project"]["generation"] == {
@@ -102,7 +153,12 @@ def test_ai_refinement_preserves_traceability_and_passes_quality_gate() -> None:
         "mode": "qiniu_ai",
         "fallback_reason": "",
     }
-    assert "林夏抵达车站，发现一封旧信。" in (
+    assert result.screenplay["story_bible"]["characters"][0]["name"] == "林夏"
+    assert {location["name"] for location in result.screenplay["story_bible"]["locations"]} == {
+        "废弃车站",
+        "站长室",
+    }
+    assert "林夏抵达车站，发现一封旧信。" not in (
         result.screenplay["screenplay"]["scenes"][0]["beats"][0]["text"]
     )
     assert result.screenplay["narrative_events"][0]["evidence"]["quote"] in result.source_texts[
@@ -112,10 +168,23 @@ def test_ai_refinement_preserves_traceability_and_passes_quality_gate() -> None:
     assert result.issues[-1]["code"] == "ai_semantic_review_required"
 
 
-def test_ai_refinement_rejects_missing_or_unknown_scene_ids() -> None:
+def test_full_ai_adaptation_deduplicates_character_aliases() -> None:
+    class DuplicateAliasClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            result = full_adaptation()
+            result["characters"][0]["aliases"] = ["林夏", " 小林 ", "小林"]
+            return result
+
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=DuplicateAliasClient())
+
+    assert result.screenplay["story_bible"]["characters"][0]["aliases"] == ["小林"]
+    assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
+def test_full_ai_adaptation_rejects_uncovered_events() -> None:
     class IncompleteClient(FakeQiniuClient):
         def complete_json(self, messages: list[dict[str, str]]) -> dict:
-            result = enhancements()
+            result = full_adaptation()
             result["scenes"] = result["scenes"][:2]
             return result
 
@@ -125,17 +194,17 @@ def test_ai_refinement_rejects_missing_or_unknown_scene_ids() -> None:
     assert error.value.code == "qiniu_provider_output_invalid"
 
 
-def test_ai_refinement_rejects_action_without_exact_evidence_quote() -> None:
-    class UngroundedClient(FakeQiniuClient):
+def test_full_ai_adaptation_rejects_unknown_evidence_id() -> None:
+    class UnknownEvidenceClient(FakeQiniuClient):
         def complete_json(self, messages: list[dict[str, str]]) -> dict:
-            result = enhancements()
-            result["scenes"][0]["action_text"] = "林夏在另一个城市追逐陌生人。"
+            result = full_adaptation()
+            result["events"][0]["evidence_id"] = "unknown_evidence"
             return result
 
     with pytest.raises(QiniuAIError) as error:
-        generate_qiniu_screenplay(NOVEL, "雨夜来信", client=UngroundedClient())
+        generate_qiniu_screenplay(NOVEL, "雨夜来信", client=UnknownEvidenceClient())
 
-    assert error.value.code == "qiniu_provider_output_ungrounded"
+    assert error.value.code == "qiniu_provider_output_invalid"
 
 
 def test_qiniu_client_rejects_non_json_content() -> None:

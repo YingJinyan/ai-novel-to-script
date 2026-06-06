@@ -254,23 +254,13 @@ def validate_generation_contract(screenplay: dict) -> list[str]:
 
 
 def validate_scene_grounding(screenplay: dict) -> list[str]:
-    """Require every source-adaptation scene to retain its traced evidence quotes."""
-    events = {event["id"]: event for event in screenplay["narrative_events"]}
-    issues: list[str] = []
-    for scene in screenplay["screenplay"]["scenes"]:
-        action_texts = [
-            beat["text"] for beat in scene["beats"] if beat["type"] == "action"
-        ]
-        for event_id in scene["traceability"]["source_event_ids"]:
-            event = events.get(event_id)
-            if event is None:
-                continue
-            quote = event["evidence"]["quote"]
-            if not any(quote in action_text for action_text in action_texts):
-                issues.append(
-                    f"{scene['id']} action text does not retain evidence quote for {event_id}"
-                )
-    return issues
+    """Require every source-adaptation scene to keep an independently verified evidence link."""
+    return [
+        f"{scene['id']} source-adaptation scene has no traced source event"
+        for scene in screenplay["screenplay"]["scenes"]
+        if scene["traceability"]["origin"] == "source_adaptation"
+        and not scene["traceability"]["source_event_ids"]
+    ]
 
 
 def build_quality_report(
