@@ -162,6 +162,10 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
             issues.append(f"{event['id']} evidence range must end after it starts")
         elif source_text[start:end] != evidence["quote"]:
             issues.append(f"{event['id']} evidence quote does not match the source text range")
+        elif not evidence_spans_complete_excerpt(source_text, start, end):
+            issues.append(
+                f"{event['id']} evidence quote must span a complete sentence or paragraph excerpt"
+            )
 
     if len(available_texts) == len(screenplay["source"]["chapters"]):
         actual_total = sum(len(text) for text in available_texts)
@@ -171,6 +175,29 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
     return issues
 
 
+def evidence_spans_complete_excerpt(source_text: str, start: int, end: int) -> bool:
+    """Reject arbitrary sub-slices while allowing full sentences and capped paragraphs."""
+    sentence_endings = "。！？!?"
+    prefix = source_text[:start]
+    suffix = source_text[end:]
+    previous_nonspace = prefix.rstrip()
+    following_nonspace = suffix.lstrip()
+    starts_after_line_break = prefix.rstrip(" \t").endswith(("\n", "\r"))
+    ends_before_line_break = suffix.lstrip(" \t").startswith(("\n", "\r"))
+    starts_at_boundary = (
+        not previous_nonspace
+        or previous_nonspace[-1] in sentence_endings
+        or starts_after_line_break
+    )
+    ends_at_boundary = (
+        not following_nonspace
+        or source_text[end - 1] in sentence_endings
+        or ends_before_line_break
+        or end - start == 200
+    )
+    return starts_at_boundary and ends_at_boundary
+
+
 def validate_generation_contract(screenplay: dict) -> list[str]:
     """Prevent edited metadata from misrepresenting how a screenplay was generated."""
     generation = screenplay["project"]["generation"]
@@ -178,6 +205,12 @@ def validate_generation_contract(screenplay: dict) -> list[str]:
     model = generation.get("model", "")
     mode = generation["mode"]
     issues: list[str] = []
+    normalized_provider = provider.strip().lower()
+
+    if provider != provider.strip():
+        issues.append("generation provider cannot contain leading or trailing whitespace")
+    if model != model.strip():
+        issues.append("generation model cannot contain leading or trailing whitespace")
 
     if mode == "qiniu_ai":
         if provider != "qiniu-ai":
@@ -185,9 +218,13 @@ def validate_generation_contract(screenplay: dict) -> list[str]:
         if not model.strip():
             issues.append("qiniu_ai generation mode requires a non-empty model")
     elif mode == "compatible_ai":
-        if provider in {"qiniu-ai", "local-rules"}:
+        if normalized_provider in {
+            "qiniu-ai",
+            "local-rules",
+            "local-curated-example",
+        }:
             issues.append(
-                "compatible_ai generation mode cannot use a reserved Qiniu or local provider"
+                "compatible_ai generation mode cannot use a reserved provider"
             )
         if not model.strip():
             issues.append("compatible_ai generation mode requires a non-empty model")
@@ -204,11 +241,11 @@ def validate_generation_contract(screenplay: dict) -> list[str]:
         if model:
             issues.append("curated_demo generation mode requires an empty model")
 
-    if provider == "qiniu-ai" and mode != "qiniu_ai":
+    if normalized_provider == "qiniu-ai" and mode != "qiniu_ai":
         issues.append("provider qiniu-ai requires qiniu_ai generation mode")
-    if provider == "local-rules" and mode != "local_rules":
+    if normalized_provider == "local-rules" and mode != "local_rules":
         issues.append("provider local-rules requires local_rules generation mode")
-    if provider == "local-curated-example" and mode != "curated_demo":
+    if normalized_provider == "local-curated-example" and mode != "curated_demo":
         issues.append(
             "provider local-curated-example requires curated_demo generation mode"
         )

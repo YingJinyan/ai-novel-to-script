@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 from scripts.validate_example import (
     build_quality_report,
+    evidence_spans_complete_excerpt,
     load_example_source_texts,
     validate_generation_contract,
     validate_references,
@@ -130,6 +131,34 @@ def test_rejects_forged_evidence_quote(screenplay: dict) -> None:
     assert "event_letter_found evidence quote does not match the source text range" in errors
 
 
+def test_rejects_evidence_rewritten_to_an_arbitrary_single_character(
+    screenplay: dict,
+) -> None:
+    source_texts = load_example_source_texts()
+    event = screenplay["narrative_events"][0]
+    character = source_texts[event["chapter_id"]][0]
+    event["evidence"] = {"quote": character, "start_char": 0, "end_char": 1}
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": character}
+    ]
+
+    report = validate_screenplay(screenplay, source_texts)
+
+    assert report["passed"] is False
+    assert any(
+        "evidence quote must span a complete sentence or paragraph excerpt"
+        in issue["message"]
+        for issue in report["issues"]
+    )
+
+
+def test_complete_excerpt_boundary_allows_a_full_source_sentence() -> None:
+    source = "第一句完整证据。第二句也完整。"
+
+    assert evidence_spans_complete_excerpt(source, 0, 8) is True
+    assert evidence_spans_complete_excerpt(source, 1, 8) is False
+
+
 def test_rejects_source_text_when_content_hash_changes(screenplay: dict) -> None:
     source_texts = load_example_source_texts()
     source_texts["chapter_1"] += "被篡改"
@@ -183,10 +212,24 @@ def test_rejects_compatible_ai_without_a_model_or_with_a_reserved_provider(
     errors = validate_generation_contract(screenplay)
 
     assert (
-        "compatible_ai generation mode cannot use a reserved Qiniu or local provider"
+        "compatible_ai generation mode cannot use a reserved provider"
         in errors
     )
     assert "compatible_ai generation mode requires a non-empty model" in errors
+
+
+def test_rejects_compatible_ai_reserved_provider_name_variants(screenplay: dict) -> None:
+    screenplay["project"]["generation"] = {
+        "provider": "QINIU-AI ",
+        "model": "other-model",
+        "mode": "compatible_ai",
+        "fallback_reason": "",
+    }
+
+    errors = validate_generation_contract(screenplay)
+
+    assert "generation provider cannot contain leading or trailing whitespace" in errors
+    assert "compatible_ai generation mode cannot use a reserved provider" in errors
 
 
 def test_rejects_curated_demo_with_a_forged_provider_or_model(screenplay: dict) -> None:
