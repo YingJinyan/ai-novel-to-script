@@ -162,12 +162,114 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
             issues.append(f"{event['id']} evidence range must end after it starts")
         elif source_text[start:end] != evidence["quote"]:
             issues.append(f"{event['id']} evidence quote does not match the source text range")
+        elif not evidence_spans_complete_excerpt(source_text, start, end):
+            issues.append(
+                f"{event['id']} evidence quote must span a complete sentence or paragraph excerpt"
+            )
 
     if len(available_texts) == len(screenplay["source"]["chapters"]):
         actual_total = sum(len(text) for text in available_texts)
         if actual_total != screenplay["source"]["total_characters"]:
             issues.append("source.total_characters does not match the imported chapter texts")
 
+    return issues
+
+
+def evidence_spans_complete_excerpt(source_text: str, start: int, end: int) -> bool:
+    """Reject arbitrary sub-slices while allowing full sentences and capped paragraphs."""
+    sentence_endings = "。！？!?"
+    prefix = source_text[:start]
+    suffix = source_text[end:]
+    previous_nonspace = prefix.rstrip()
+    following_nonspace = suffix.lstrip()
+    starts_after_line_break = prefix.rstrip(" \t").endswith(("\n", "\r"))
+    ends_before_line_break = suffix.lstrip(" \t").startswith(("\n", "\r"))
+    starts_at_boundary = (
+        not previous_nonspace
+        or previous_nonspace[-1] in sentence_endings
+        or starts_after_line_break
+    )
+    ends_at_boundary = (
+        not following_nonspace
+        or source_text[end - 1] in sentence_endings
+        or ends_before_line_break
+        or end - start == 200
+    )
+    return starts_at_boundary and ends_at_boundary
+
+
+def validate_generation_contract(screenplay: dict) -> list[str]:
+    """Prevent edited metadata from misrepresenting how a screenplay was generated."""
+    generation = screenplay["project"]["generation"]
+    provider = generation["provider"]
+    model = generation.get("model", "")
+    mode = generation["mode"]
+    issues: list[str] = []
+    normalized_provider = provider.strip().lower()
+
+    if provider != provider.strip():
+        issues.append("generation provider cannot contain leading or trailing whitespace")
+    if model != model.strip():
+        issues.append("generation model cannot contain leading or trailing whitespace")
+
+    if mode == "qiniu_ai":
+        if provider != "qiniu-ai":
+            issues.append("qiniu_ai generation mode requires provider qiniu-ai")
+        if not model.strip():
+            issues.append("qiniu_ai generation mode requires a non-empty model")
+    elif mode == "compatible_ai":
+        if normalized_provider in {
+            "qiniu-ai",
+            "local-rules",
+            "local-curated-example",
+        }:
+            issues.append(
+                "compatible_ai generation mode cannot use a reserved provider"
+            )
+        if not model.strip():
+            issues.append("compatible_ai generation mode requires a non-empty model")
+    elif mode == "local_rules":
+        if provider != "local-rules":
+            issues.append("local_rules generation mode requires provider local-rules")
+        if model:
+            issues.append("local_rules generation mode requires an empty model")
+    elif mode == "curated_demo":
+        if provider != "local-curated-example":
+            issues.append(
+                "curated_demo generation mode requires provider local-curated-example"
+            )
+        if model:
+            issues.append("curated_demo generation mode requires an empty model")
+
+    if normalized_provider == "qiniu-ai" and mode != "qiniu_ai":
+        issues.append("provider qiniu-ai requires qiniu_ai generation mode")
+    if normalized_provider == "local-rules" and mode != "local_rules":
+        issues.append("provider local-rules requires local_rules generation mode")
+    if normalized_provider == "local-curated-example" and mode != "curated_demo":
+        issues.append(
+            "provider local-curated-example requires curated_demo generation mode"
+        )
+
+    return issues
+
+
+def validate_scene_grounding(screenplay: dict) -> list[str]:
+    """Require every source-adaptation scene to retain its traced evidence quotes."""
+    events = {event["id"]: event for event in screenplay["narrative_events"]}
+    issues: list[str] = []
+    for scene in screenplay["screenplay"]["scenes"]:
+        action_texts = [
+            beat["text"] for beat in scene["beats"] if beat["type"] == "action"
+        ]
+        for event_id in scene["traceability"]["source_event_ids"]:
+            event = events.get(event_id)
+            if event is None:
+                continue
+            quote = event["evidence"]["quote"]
+            if not any(quote in action_text for action_text in action_texts):
+                issues.append(
+                    f"{scene['id']} action text does not retain evidence quote for {event_id}"
+                )
     return issues
 
 
@@ -314,8 +416,14 @@ def validate_screenplay(screenplay: object, source_texts: dict[str, str]) -> dic
             ],
         }
 
-    reference_errors = validate_references(screenplay)
-    evidence_errors = validate_source_evidence(screenplay, source_texts)
+    reference_errors = [
+        *validate_references(screenplay),
+        *validate_generation_contract(screenplay),
+    ]
+    evidence_errors = [
+        *validate_source_evidence(screenplay, source_texts),
+        *validate_scene_grounding(screenplay),
+    ]
     return build_quality_report(
         screenplay,
         reference_errors=reference_errors,

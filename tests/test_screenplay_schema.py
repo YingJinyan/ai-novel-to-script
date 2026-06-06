@@ -10,8 +10,11 @@ from jsonschema import Draft202012Validator
 
 from scripts.validate_example import (
     build_quality_report,
+    evidence_spans_complete_excerpt,
     load_example_source_texts,
+    validate_generation_contract,
     validate_references,
+    validate_scene_grounding,
     validate_screenplay,
     validate_source_evidence,
 )
@@ -39,6 +42,8 @@ def test_example_passes_structure_and_business_rules(screenplay: dict) -> None:
     assert schema_errors(screenplay) == []
     assert validate_references(screenplay) == []
     assert validate_source_evidence(screenplay, load_example_source_texts()) == []
+    assert validate_generation_contract(screenplay) == []
+    assert validate_scene_grounding(screenplay) == []
 
 
 def test_schema_allows_empty_character_list_when_no_person_is_reliably_identified(
@@ -126,6 +131,34 @@ def test_rejects_forged_evidence_quote(screenplay: dict) -> None:
     assert "event_letter_found evidence quote does not match the source text range" in errors
 
 
+def test_rejects_evidence_rewritten_to_an_arbitrary_single_character(
+    screenplay: dict,
+) -> None:
+    source_texts = load_example_source_texts()
+    event = screenplay["narrative_events"][0]
+    character = source_texts[event["chapter_id"]][0]
+    event["evidence"] = {"quote": character, "start_char": 0, "end_char": 1}
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": character}
+    ]
+
+    report = validate_screenplay(screenplay, source_texts)
+
+    assert report["passed"] is False
+    assert any(
+        "evidence quote must span a complete sentence or paragraph excerpt"
+        in issue["message"]
+        for issue in report["issues"]
+    )
+
+
+def test_complete_excerpt_boundary_allows_a_full_source_sentence() -> None:
+    source = "第一句完整证据。第二句也完整。"
+
+    assert evidence_spans_complete_excerpt(source, 0, 8) is True
+    assert evidence_spans_complete_excerpt(source, 1, 8) is False
+
+
 def test_rejects_source_text_when_content_hash_changes(screenplay: dict) -> None:
     source_texts = load_example_source_texts()
     source_texts["chapter_1"] += "被篡改"
@@ -141,6 +174,123 @@ def test_rejects_incorrect_total_character_count(screenplay: dict) -> None:
     errors = validate_source_evidence(screenplay, load_example_source_texts())
 
     assert "source.total_characters does not match the imported chapter texts" in errors
+
+
+def test_rejects_qiniu_mode_with_a_forged_provider_or_empty_model(screenplay: dict) -> None:
+    screenplay["project"]["generation"] = {
+        "provider": "local-rules",
+        "model": "",
+        "mode": "qiniu_ai",
+        "fallback_reason": "",
+    }
+
+    errors = validate_generation_contract(screenplay)
+
+    assert "qiniu_ai generation mode requires provider qiniu-ai" in errors
+    assert "qiniu_ai generation mode requires a non-empty model" in errors
+
+
+def test_rejects_qiniu_provider_outside_qiniu_mode(screenplay: dict) -> None:
+    screenplay["project"]["generation"]["provider"] = "qiniu-ai"
+
+    assert (
+        "provider qiniu-ai requires qiniu_ai generation mode"
+        in validate_generation_contract(screenplay)
+    )
+
+
+def test_rejects_compatible_ai_without_a_model_or_with_a_reserved_provider(
+    screenplay: dict,
+) -> None:
+    screenplay["project"]["generation"] = {
+        "provider": "local-rules",
+        "model": "",
+        "mode": "compatible_ai",
+        "fallback_reason": "",
+    }
+
+    errors = validate_generation_contract(screenplay)
+
+    assert (
+        "compatible_ai generation mode cannot use a reserved provider"
+        in errors
+    )
+    assert "compatible_ai generation mode requires a non-empty model" in errors
+
+
+def test_rejects_compatible_ai_reserved_provider_name_variants(screenplay: dict) -> None:
+    screenplay["project"]["generation"] = {
+        "provider": "QINIU-AI ",
+        "model": "other-model",
+        "mode": "compatible_ai",
+        "fallback_reason": "",
+    }
+
+    errors = validate_generation_contract(screenplay)
+
+    assert "generation provider cannot contain leading or trailing whitespace" in errors
+    assert "compatible_ai generation mode cannot use a reserved provider" in errors
+
+
+def test_rejects_curated_demo_with_a_forged_provider_or_model(screenplay: dict) -> None:
+    screenplay["project"]["generation"] = {
+        "provider": "curated-demo",
+        "model": "forged-model",
+        "mode": "curated_demo",
+        "fallback_reason": "",
+    }
+
+    errors = validate_generation_contract(screenplay)
+
+    assert (
+        "curated_demo generation mode requires provider local-curated-example"
+        in errors
+    )
+    assert "curated_demo generation mode requires an empty model" in errors
+
+
+def test_rejects_any_source_scene_that_drops_source_evidence(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": "不包含来源证据的动作。"}
+    ]
+    screenplay["project"]["generation"] = {
+        "provider": "qiniu-ai",
+        "model": "deepseek-v3",
+        "mode": "qiniu_ai",
+        "fallback_reason": "",
+    }
+
+    errors = validate_scene_grounding(screenplay)
+
+    assert (
+        "scene_1 action text does not retain evidence quote for event_letter_found"
+        in errors
+    )
+
+
+def test_rejects_curated_demo_relabel_that_drops_source_evidence(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": "不包含来源证据的动作。"}
+    ]
+
+    assert validate_scene_grounding(screenplay)
+
+
+def test_safe_validation_rechecks_qiniu_grounding_after_yaml_edit(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": "不包含来源证据的动作。"}
+    ]
+    screenplay["project"]["generation"] = {
+        "provider": "qiniu-ai",
+        "model": "deepseek-v3",
+        "mode": "qiniu_ai",
+        "fallback_reason": "",
+    }
+
+    report = validate_screenplay(screenplay, load_example_source_texts())
+
+    assert report["passed"] is False
+    assert "evidence_validation_error" in {issue["code"] for issue in report["issues"]}
 
 
 def test_rejects_invent_event_action_when_author_forbids_it(screenplay: dict) -> None:

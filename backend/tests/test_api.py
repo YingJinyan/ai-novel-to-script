@@ -315,6 +315,38 @@ def test_successful_generation_always_passes_quality_gate() -> None:
     assert response.json()["quality_report"]["passed"] is True
 
 
+def test_validate_blocks_relabelled_generation_and_removed_grounding() -> None:
+    generated = client.post(
+        "/api/v1/projects/generate-local",
+        json={"novel_text": NOVEL},
+    ).json()
+    screenplay = generated["screenplay"]
+    screenplay["project"]["generation"] = {
+        "provider": "local-rules",
+        "model": "",
+        "mode": "qiniu_ai",
+        "fallback_reason": "",
+    }
+    screenplay["screenplay"]["scenes"][0]["beats"] = [
+        {"type": "action", "text": "不包含来源证据的动作。"}
+    ]
+
+    response = client.post(
+        "/api/v1/validate",
+        json={
+            "screenplay": screenplay,
+            "source_texts": generated["source_texts"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["passed"] is False
+    assert {issue["code"] for issue in response.json()["issues"]} >= {
+        "reference_validation_error",
+        "evidence_validation_error",
+    }
+
+
 def test_generation_quality_gate_failure_returns_diagnostics(monkeypatch) -> None:
     report = {
         "passed": False,
