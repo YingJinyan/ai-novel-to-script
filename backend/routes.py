@@ -180,7 +180,7 @@ def generate_project_local(
 def generate_project_ai(
     request: AIGenerationRequest,
 ) -> LocalGenerationResponse | JSONResponse:
-    """Generate with Qiniu AI inside a deterministic, quality-gated source skeleton."""
+    """Generate a full screenplay with Qiniu AI and deterministic source evidence."""
     parse_result = analyze_chapters(request.novel_text)
     if not parse_result.eligible:
         issue = next(
@@ -212,7 +212,7 @@ def generate_project_ai(
     if not quality_report.passed:
         error = QualityGateErrorResponse(
             code="ai_generated_screenplay_failed_quality_gate",
-            message="七牛 AI 润色结果未通过质量门禁。",
+            message="七牛 AI 改编结果未通过质量门禁。",
             related_ids=[],
             quality_report=quality_report,
         )

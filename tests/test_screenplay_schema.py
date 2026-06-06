@@ -249,48 +249,23 @@ def test_rejects_curated_demo_with_a_forged_provider_or_model(screenplay: dict) 
     assert "curated_demo generation mode requires an empty model" in errors
 
 
-def test_rejects_any_source_scene_that_drops_source_evidence(screenplay: dict) -> None:
-    screenplay["screenplay"]["scenes"][0]["beats"] = [
-        {"type": "action", "text": "不包含来源证据的动作。"}
-    ]
-    screenplay["project"]["generation"] = {
-        "provider": "qiniu-ai",
-        "model": "deepseek-v3",
-        "mode": "qiniu_ai",
-        "fallback_reason": "",
-    }
-
-    errors = validate_scene_grounding(screenplay)
+def test_rejects_source_scene_without_a_traced_event(screenplay: dict) -> None:
+    screenplay["screenplay"]["scenes"][0]["traceability"]["source_event_ids"] = []
 
     assert (
-        "scene_1 action text does not retain evidence quote for event_letter_found"
-        in errors
+        "scene_1 source-adaptation scene has no traced source event"
+        in validate_scene_grounding(screenplay)
     )
 
 
-def test_rejects_curated_demo_relabel_that_drops_source_evidence(screenplay: dict) -> None:
+def test_allows_screenplay_paraphrase_when_evidence_link_remains(screenplay: dict) -> None:
     screenplay["screenplay"]["scenes"][0]["beats"] = [
-        {"type": "action", "text": "不包含来源证据的动作。"}
+        {"type": "action", "text": "林夏在雨中读完信件，立即决定出发。"}
     ]
-
-    assert validate_scene_grounding(screenplay)
-
-
-def test_safe_validation_rechecks_qiniu_grounding_after_yaml_edit(screenplay: dict) -> None:
-    screenplay["screenplay"]["scenes"][0]["beats"] = [
-        {"type": "action", "text": "不包含来源证据的动作。"}
-    ]
-    screenplay["project"]["generation"] = {
-        "provider": "qiniu-ai",
-        "model": "deepseek-v3",
-        "mode": "qiniu_ai",
-        "fallback_reason": "",
-    }
 
     report = validate_screenplay(screenplay, load_example_source_texts())
 
-    assert report["passed"] is False
-    assert "evidence_validation_error" in {issue["code"] for issue in report["issues"]}
+    assert report["passed"] is True
 
 
 def test_rejects_invent_event_action_when_author_forbids_it(screenplay: dict) -> None:
