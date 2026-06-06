@@ -73,6 +73,10 @@ class LocalGenerationRequest(NovelTextRequest):
     title: str = Field(default="本地规则改编", min_length=1, max_length=200)
 
 
+class AIGenerationRequest(LocalGenerationRequest):
+    model: str = Field(default="", max_length=200)
+
+
 class ParsedChapter(BaseModel):
     id: str
     order: int = Field(ge=1)
@@ -97,7 +101,14 @@ class LocalGenerationResponse(BaseModel):
 
 class ProviderStatusResponse(BaseModel):
     provider: str
+    credentials_configured: bool
     configured: bool
     model: str
     base_url: str
     mode: str
+
+
+class ProviderModelsResponse(BaseModel):
+    provider: str
+    selected_model: str
+    models: list[str]

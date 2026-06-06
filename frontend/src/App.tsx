@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
-import { ApiError, generateAI, generateLocal, getQiniuStatus, parseNovel } from "./api";
-import type { GenerationResponse, Issue, ParseResponse, ProviderStatus, QualityReport, Scene } from "./types";
+import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel } from "./api";
+import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
 
 type ResultTab = "script" | "coverage" | "quality" | "yaml";
 type GenerationMode = "local" | "qiniu";
@@ -103,15 +103,44 @@ export default function App() {
   const [error, setError] = useState("");
   const [blockedQuality, setBlockedQuality] = useState<QualityReport | null>(null);
   const [generationMode, setGenerationMode] = useState<GenerationMode>("local");
-  const [qiniuStatus, setQiniuStatus] = useState<ProviderStatus | null>(null);
+  const [qiniuModels, setQiniuModels] = useState<string[]>([]);
+  const [selectedQiniuModel, setSelectedQiniuModel] = useState("");
+  const [providerMessage, setProviderMessage] = useState("");
+  const [providerLoading, setProviderLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
 
   const scenes = result?.screenplay.screenplay.scenes ?? [];
   const yamlText = useMemo(() => result ? yaml.dump(result.screenplay, { noRefs: true, lineWidth: 100 }) : "", [result]);
 
+  async function refreshQiniuProvider() {
+    setProviderLoading(true);
+    setProviderMessage("");
+    try {
+      const status = await getQiniuStatus();
+      setSelectedQiniuModel(status.model);
+      if (!status.credentials_configured) {
+        setQiniuModels([]);
+        setProviderMessage("后端尚未配置七牛 API Key。");
+        return;
+      }
+      const response = await getQiniuModels();
+      setQiniuModels(response.models);
+      const preferred = response.models.includes(response.selected_model)
+        ? response.selected_model
+        : response.models[0] ?? "";
+      setSelectedQiniuModel(preferred);
+      setProviderMessage(`已从七牛读取 ${response.models.length} 个可用模型。`);
+    } catch (err) {
+      setQiniuModels([]);
+      setProviderMessage(err instanceof Error ? err.message : "七牛模型列表读取失败。");
+    } finally {
+      setProviderLoading(false);
+    }
+  }
+
   useEffect(() => {
-    getQiniuStatus().then(setQiniuStatus).catch(() => setQiniuStatus(null));
+    void refreshQiniuProvider();
   }, []);
 
   async function handleParse() {
@@ -127,14 +156,14 @@ export default function App() {
   async function handleGenerate() {
     if (!title.trim()) return setError("请填写项目名称。");
     if (!parsed?.eligible) return setError("当前解析结果未达到生成条件，请先处理阻断问题。");
-    if (generationMode === "qiniu" && !qiniuStatus?.configured) {
-      return setError("七牛 AI 尚未配置，请设置 API Key 与模型，或使用离线规则模式。");
+    if (generationMode === "qiniu" && !selectedQiniuModel) {
+      return setError("七牛 AI 尚无可用模型，请刷新模型列表或使用离线规则模式。");
     }
     setLoading("generate"); setError(""); setBlockedQuality(null); setResult(null);
     const requestedRevision = sourceRevision.current;
     try {
       const generated = generationMode === "qiniu"
-        ? await generateAI(novelText, title.trim())
+        ? await generateAI(novelText, title.trim(), selectedQiniuModel)
         : await generateLocal(novelText, title.trim());
       if (requestedRevision === sourceRevision.current) {
         setResult(generated); setSelectedScene(0); setTab("script");
@@ -202,7 +231,7 @@ export default function App() {
     <div className="app-shell">
       <header>
         <div className="brand"><span className="brand-mark">溯</span><div><strong>溯源剧本工作台</strong><small>可信 · 可控 · 可追溯</small></div></div>
-        <div className="mode"><i />{generationMode === "qiniu" ? "七牛 AI 受限润色模式" : "离线规则模式（不调用 AI）"}</div>
+        <div className="mode"><i />{generationMode === "qiniu" ? `七牛 AI · ${selectedQiniuModel}` : "离线规则模式（不调用 AI）"}</div>
       </header>
 
       <main>
@@ -225,7 +254,8 @@ export default function App() {
               <div className="stats"><div><strong>{parsed.chapters.length}</strong><span>识别章节</span></div><div><strong>{parsed.total_characters.toLocaleString()}</strong><span>总字符</span></div><div><strong>{parsed.issues.length}</strong><span>问题</span></div></div>
               <div className="chapter-strip">{parsed.chapters.map((chapter) => <div key={chapter.id}><span>{String(chapter.order).padStart(2, "0")}</span><strong>{chapter.title}</strong><small>{chapter.text.length} 字符</small></div>)}</div>
               <IssueList issues={parsed.issues} />
-              <div className="provider-picker"><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>离线规则</strong><span>不调用 AI，稳定生成可追溯骨架</span></button><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !qiniuStatus?.configured} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI</strong><span>{qiniuStatus?.configured ? `${qiniuStatus.model} · 受限润色` : "未配置 API Key 与模型"}</span></button></div>
+              <div className="provider-picker"><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>离线规则</strong><span>不调用 AI，稳定生成可追溯骨架</span></button><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !selectedQiniuModel} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI</strong><span>{selectedQiniuModel ? `${selectedQiniuModel} · 受限润色` : "未读取到可用模型"}</span></button></div>
+              <div className="model-picker"><label>七牛模型<select disabled={!!loading || providerLoading || !qiniuModels.length} value={selectedQiniuModel} onChange={(event) => { setSelectedQiniuModel(event.target.value); if (generationMode === "qiniu") setResult(null); }}>{qiniuModels.length ? qiniuModels.map((model) => <option value={model} key={model}>{model}</option>) : <option value="">暂无可用模型</option>}</select></label><button className="text-button" disabled={providerLoading || !!loading} onClick={() => void refreshQiniuProvider()}>{providerLoading ? "读取中…" : "刷新七牛模型"}</button><span>{providerMessage}</span></div>
               <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : generationMode === "qiniu" ? "使用七牛 AI 润色" : "生成结构化剧本"}</button></div>
             </>}
           </div>

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from backend.models import (
+    AIGenerationRequest,
     ChapterParseResponse,
     ErrorResponse,
     HealthResponse,
@@ -17,13 +18,14 @@ from backend.models import (
     NovelTextRequest,
     ParsedChapter,
     ProviderStatusResponse,
+    ProviderModelsResponse,
     QualityGateErrorResponse,
     ValidationIssue,
     ValidationReport,
     ValidationRequest,
 )
 from backend.pipeline import analyze_chapters, generate_local_screenplay, generate_qiniu_screenplay
-from backend.providers import QiniuAIError, QiniuSettings
+from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import EXAMPLE_PATH, validate_screenplay
 
 
@@ -58,10 +60,35 @@ def qiniu_provider_status() -> ProviderStatusResponse:
     settings = QiniuSettings.from_env()
     return ProviderStatusResponse(
         provider="qiniu-ai",
+        credentials_configured=settings.credentials_configured,
         configured=settings.configured,
         model=settings.model,
         base_url=settings.base_url,
         mode="qiniu_ai",
+    )
+
+
+@router.get(
+    "/providers/qiniu/models",
+    response_model=ProviderModelsResponse,
+    responses={
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+def qiniu_provider_models() -> ProviderModelsResponse | JSONResponse:
+    """Return model IDs from Qiniu without exposing the API key."""
+    settings = QiniuSettings.from_env()
+    try:
+        models = QiniuClient(settings).list_models()
+    except QiniuAIError as exc:
+        status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
+        error = ErrorResponse(code=exc.code, message=str(exc), related_ids=[])
+        return JSONResponse(status_code=status_code, content=error.model_dump())
+    return ProviderModelsResponse(
+        provider="qiniu-ai",
+        selected_model=settings.model,
+        models=models,
     )
 
 
@@ -151,7 +178,7 @@ def generate_project_local(
     },
 )
 def generate_project_ai(
-    request: LocalGenerationRequest,
+    request: AIGenerationRequest,
 ) -> LocalGenerationResponse | JSONResponse:
     """Generate with Qiniu AI inside a deterministic, quality-gated source skeleton."""
     parse_result = analyze_chapters(request.novel_text)
@@ -167,7 +194,11 @@ def generate_project_ai(
         return JSONResponse(status_code=422, content=error.model_dump())
 
     try:
-        result = generate_qiniu_screenplay(request.novel_text, title=request.title)
+        result = generate_qiniu_screenplay(
+            request.novel_text,
+            title=request.title,
+            model=request.model,
+        )
     except QiniuAIError as exc:
         status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
         if exc.code == "ai_source_text_too_long":

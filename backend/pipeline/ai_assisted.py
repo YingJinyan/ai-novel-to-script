@@ -8,7 +8,7 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from backend.pipeline.local_rules import PipelineResult, generate_local_screenplay
-from backend.providers import QiniuAIError, QiniuClient
+from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 
 
 MAX_AI_SOURCE_CHARACTERS = 30_000
@@ -94,6 +94,7 @@ def _prompt(local_result: PipelineResult) -> list[dict[str, str]]:
 def generate_qiniu_screenplay(
     novel_text: str,
     title: str,
+    model: str = "",
     client: QiniuClient | None = None,
 ) -> PipelineResult:
     """Refine a valid local draft while preserving its complete evidence chain."""
@@ -104,7 +105,8 @@ def generate_qiniu_screenplay(
             f"AI 模式当前最多处理 {MAX_AI_SOURCE_CHARACTERS} 个章节正文字符，请缩短输入或使用离线规则模式。",
         )
 
-    provider = client or QiniuClient()
+    settings = QiniuSettings.from_env()
+    provider = client or QiniuClient(settings.with_model(model) if model.strip() else settings)
     try:
         enhancement = ScreenplayEnhancement.model_validate(
             provider.complete_json(_prompt(local_result))

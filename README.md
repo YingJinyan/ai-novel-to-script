@@ -91,15 +91,14 @@ npm run dev
 
 ## 七牛 AI 配置
 
-仓库**不会保存真实 API Key**。申请七牛 API Key 与可用模型后，仅在本机终端设置：
+仓库**不会保存真实 API Key**。申请或重置七牛 API Key 后，仅在本机终端设置：
 
 ```powershell
 $env:QINIU_AI_API_KEY="你的真实 Key"
-$env:QINIU_AI_MODEL="七牛支持的模型名"
 py -3.10 -m uvicorn backend.main:app --reload
 ```
 
-不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
+页面会通过后端安全读取七牛 `/v1/models` 返回的可用模型，用户可直接选择。也可选填 `QINIU_AI_MODEL` 作为默认模型。不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
 
 ## 质量检查
 

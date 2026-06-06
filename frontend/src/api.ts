@@ -1,4 +1,4 @@
-import type { GenerationResponse, ParseResponse, ProviderStatus } from "./types";
+import type { GenerationResponse, ParseResponse, ProviderModels, ProviderStatus } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
@@ -49,6 +49,9 @@ async function get<T>(path: string): Promise<T> {
 export const getQiniuStatus = () =>
   get<ProviderStatus>("/api/v1/providers/qiniu/status");
 
+export const getQiniuModels = () =>
+  get<ProviderModels>("/api/v1/providers/qiniu/models");
+
 export const parseNovel = (novelText: string) =>
   post<ParseResponse>("/api/v1/projects/parse", { novel_text: novelText });
 
@@ -58,8 +61,9 @@ export const generateLocal = (novelText: string, title: string) =>
     title,
   });
 
-export const generateAI = (novelText: string, title: string) =>
+export const generateAI = (novelText: string, title: string, model: string) =>
   post<GenerationResponse>("/api/v1/projects/generate-ai", {
     novel_text: novelText,
     title,
+    model,
   });

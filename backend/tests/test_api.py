@@ -369,8 +369,25 @@ def test_qiniu_provider_status_never_returns_api_key(monkeypatch) -> None:
     response = client.get("/api/v1/providers/qiniu/status")
 
     assert response.status_code == 200
+    assert response.json()["credentials_configured"] is True
     assert response.json()["configured"] is True
     assert response.json()["model"] == "configured-model"
+    assert "do-not-return" not in response.text
+
+
+def test_qiniu_models_returns_non_secret_model_ids(monkeypatch) -> None:
+    monkeypatch.setenv("QINIU_AI_API_KEY", "do-not-return")
+    monkeypatch.setenv("QINIU_AI_MODEL", "deepseek-v3")
+    monkeypatch.setattr(
+        "backend.routes.QiniuClient.list_models",
+        lambda self: ["deepseek-v3", "qwen-plus"],
+    )
+
+    response = client.get("/api/v1/providers/qiniu/models")
+
+    assert response.status_code == 200
+    assert response.json()["selected_model"] == "deepseek-v3"
+    assert response.json()["models"] == ["deepseek-v3", "qwen-plus"]
     assert "do-not-return" not in response.text
 
 
@@ -458,3 +475,26 @@ def test_generate_ai_blocks_result_that_fails_quality_gate(monkeypatch) -> None:
     assert response.status_code == 500
     assert response.json()["code"] == "ai_generated_screenplay_failed_quality_gate"
     assert response.json()["quality_report"]["passed"] is False
+
+
+def test_generate_ai_passes_user_selected_model_to_provider_pipeline(monkeypatch) -> None:
+    from backend.pipeline import generate_local_screenplay
+
+    captured: dict = {}
+
+    def fake_generate(novel_text: str, title: str, model: str):
+        captured["model"] = model
+        return generate_local_screenplay(novel_text, title=title)
+
+    monkeypatch.setattr("backend.routes.generate_qiniu_screenplay", fake_generate)
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={
+            "novel_text": NOVEL,
+            "title": "七牛润色",
+            "model": "deepseek-v3",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["model"] == "deepseek-v3"

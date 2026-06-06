@@ -154,3 +154,39 @@ def test_qiniu_client_rejects_non_json_content() -> None:
         client.complete_json([])
 
     assert error.value.code == "qiniu_provider_invalid_response"
+
+
+def test_qiniu_client_lists_available_model_ids_without_exposing_key() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["authorization"] = request.headers["authorization"]
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "deepseek-v3"},
+                    {"id": "qwen-plus"},
+                    {"id": "deepseek-v3"},
+                ]
+            },
+        )
+
+    client = QiniuClient(
+        QiniuSettings(api_key="secret-value", model=""),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert client.list_models() == ["deepseek-v3", "qwen-plus"]
+    assert captured["url"] == "https://api.qnaigc.com/v1/models"
+    assert captured["authorization"] == "Bearer secret-value"
+
+
+def test_qiniu_client_requires_key_but_not_default_model_to_list_models() -> None:
+    client = QiniuClient(QiniuSettings(api_key="", model=""))
+
+    with pytest.raises(QiniuAIError) as error:
+        client.list_models()
+
+    assert error.value.code == "qiniu_provider_not_configured"
