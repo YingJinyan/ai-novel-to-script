@@ -26,4 +26,4 @@ Thumbs.db
 data/
 outputs/
 *.log
-
+.demo-pids.json
