@@ -78,3 +78,11 @@ export interface GenerationResponse {
   issues: Issue[];
   quality_report: QualityReport;
 }
+
+export interface ProviderStatus {
+  provider: string;
+  configured: boolean;
+  model: string;
+  base_url: string;
+  mode: string;
+}

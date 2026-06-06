@@ -93,3 +93,11 @@ class LocalGenerationResponse(BaseModel):
     source_texts: dict[str, str]
     issues: list[ValidationIssue]
     quality_report: ValidationReport
+
+
+class ProviderStatusResponse(BaseModel):
+    provider: str
+    configured: bool
+    model: str
+    base_url: str
+    mode: str

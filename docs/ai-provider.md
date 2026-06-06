@@ -1,0 +1,49 @@
+# 七牛 AI 接入与可信边界
+
+## 当前实现
+
+项目将七牛 AI 作为可选提供商，调用官方 OpenAI 兼容接口：
+
+- 默认地址：`https://api.qnaigc.com/v1/chat/completions`
+- 鉴权：`Authorization: Bearer <API Key>`
+- 输出格式：`response_format: {"type": "json_object"}`
+- 官方参考：
+  - [AI 大模型推理 API](https://developer.qiniu.com/aitokenapi/12882/ai-inference-api)
+  - [支持的模型列表](https://developer.qiniu.com/aitokenapi/12884/ai-model-list)
+
+配置环境变量：
+
+```powershell
+$env:QINIU_AI_API_KEY="你的 API Key"
+$env:QINIU_AI_MODEL="你在七牛选择的模型名"
+py -3.10 -m uvicorn backend.main:app --reload
+```
+
+密钥只由后端读取。状态接口仅返回是否配置、模型名和服务地址，不返回密钥。
+
+## 为什么采用“确定性骨架 + AI 受限润色”
+
+模型不直接生成整份剧本 YAML。系统先用本地规则生成符合 Schema 的章节、事件、场次与证据链，再允许模型润色：
+
+- 项目梗概；
+- 剧本概要；
+- 已知场次的用途与动作文本。
+
+模型不能通过输出契约修改来源章节 ID、事件 ID、原文证据位置和章节哈希。润色结果仍须通过 Schema、证据和覆盖质量门禁。
+每个 AI 动作文本还必须逐字保留对应事件的来源证据摘录，否则系统拒绝该结果。
+
+这种设计不能自动证明 AI 文案绝无语义新增，因此每次 AI 润色都会附加 `ai_semantic_review_required` 警告，要求作者复核。
+
+## 失败策略
+
+- 未配置密钥或模型：返回 `503 qiniu_provider_not_configured`。
+- 上游连接、超时或 HTTP 错误：返回结构化错误，不自动伪装成本地 AI 成功。
+- 输出不是合法 JSON 或缺少场次：拒绝结果。
+- 润色结果未通过质量门禁：返回完整质量报告，不向用户提供“通过”结果。
+- 无密钥或断网演示：使用明确标注的“离线规则模式（不调用 AI）”。
+
+## 验证状态
+
+已完成模拟 HTTP 契约测试、异常响应测试、受限输出测试与质量门禁测试。
+
+仓库不包含真实七牛密钥，因此尚未在本机完成真实七牛线上调用。配置自己的合法密钥和模型后，才能进行线上验证。

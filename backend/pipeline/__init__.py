@@ -9,6 +9,7 @@ from backend.pipeline.local_rules import (
     generate_local_screenplay,
     parse_chapters,
 )
+from backend.pipeline.ai_assisted import MAX_AI_SOURCE_CHARACTERS, generate_qiniu_screenplay
 
 __all__ = [
     "Chapter",
@@ -17,5 +18,7 @@ __all__ = [
     "PipelineResult",
     "analyze_chapters",
     "generate_local_screenplay",
+    "generate_qiniu_screenplay",
+    "MAX_AI_SOURCE_CHARACTERS",
     "parse_chapters",
 ]

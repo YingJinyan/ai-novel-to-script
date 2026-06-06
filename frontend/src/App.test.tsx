@@ -62,6 +62,30 @@ const generationPayload = {
   quality_report: { passed: true, metrics: { chapter_coverage: 1, target_scene_delta: 0 }, issues: [] },
 };
 
+const qiniuStatus = {
+  provider: "qiniu-ai",
+  configured: false,
+  model: "",
+  base_url: "https://api.qnaigc.com/v1",
+  mode: "qiniu_ai",
+};
+
+function mockApi(
+  projectResponses: Array<Response | Error>,
+  status = qiniuStatus,
+) {
+  let index = 0;
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).includes("/providers/qiniu/status")) {
+      return new Response(JSON.stringify(status), { status: 200 });
+    }
+    const response = projectResponses[index++];
+    if (response instanceof Error) throw response;
+    if (!response) throw new Error("Unexpected API request");
+    return response;
+  });
+}
+
 describe("workbench", () => {
   afterEach(() => {
     cleanup();
@@ -69,9 +93,9 @@ describe("workbench", () => {
   });
 
   it("calls parse API and displays real chapter result", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchMock = mockApi([
       new Response(JSON.stringify(parsePayload), { status: 200 }),
-    );
+    ]);
     render(<App />);
     fireEvent.change(screen.getByLabelText("小说原文"), { target: { value: "第一章\n甲\n第二章\n乙\n第三章\n丙" } });
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
@@ -82,7 +106,7 @@ describe("workbench", () => {
   });
 
   it("shows a clear backend connection error", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("offline"));
+    mockApi([new TypeError("offline")]);
     render(<App />);
     fireEvent.change(screen.getByLabelText("小说原文"), { target: { value: "novel" } });
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
@@ -91,9 +115,10 @@ describe("workbench", () => {
   });
 
   it("generates a traceable screenplay and exposes quality and YAML views", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(parsePayload), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(generationPayload), { status: 200 }));
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify(generationPayload), { status: 200 }),
+    ]);
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
@@ -121,14 +146,15 @@ describe("workbench", () => {
         related_ids: ["event_001"],
       }],
     };
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(parsePayload), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify({
         code: "generated_screenplay_failed_quality_gate",
         message: "生成结果未通过质量门禁。",
         related_ids: [],
         quality_report: blockedReport,
-      }), { status: 500 }));
+      }), { status: 500 }),
+    ]);
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
@@ -140,15 +166,16 @@ describe("workbench", () => {
   });
 
   it("removes an old screenplay before a failed regeneration", async () => {
-    vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(parsePayload), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(generationPayload), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify(generationPayload), { status: 200 }),
+      new Response(JSON.stringify({
         code: "generated_screenplay_failed_quality_gate",
         message: "生成结果未通过质量门禁。",
         related_ids: [],
         quality_report: { passed: false, metrics: {}, issues: [] },
-      }), { status: 500 }));
+      }), { status: 500 }),
+    ]);
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
@@ -159,5 +186,47 @@ describe("workbench", () => {
 
     await screen.findByText("质量门禁阻断");
     expect(screen.queryByRole("button", { name: "下载剧本 YAML" })).not.toBeInTheDocument();
+  });
+
+  it("enables Qiniu AI only when the backend reports a configured provider", async () => {
+    const fetchMock = mockApi(
+      [
+        new Response(JSON.stringify(parsePayload), { status: 200 }),
+        new Response(JSON.stringify(generationPayload), { status: 200 }),
+      ],
+      { ...qiniuStatus, configured: true, model: "configured-model" },
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(await screen.findByRole("button", { name: /七牛 AI configured-model/ }));
+    fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 润色" }));
+
+    await screen.findByText("来源证据");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/projects/generate-ai",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("clears an existing result when the generation mode changes", async () => {
+    mockApi(
+      [
+        new Response(JSON.stringify(parsePayload), { status: 200 }),
+        new Response(JSON.stringify(generationPayload), { status: 200 }),
+      ],
+      { ...qiniuStatus, configured: true, model: "configured-model" },
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    await screen.findByRole("button", { name: "下载剧本 YAML" });
+    fireEvent.click(screen.getByRole("button", { name: /七牛 AI configured-model/ }));
+
+    expect(screen.queryByRole("button", { name: "下载剧本 YAML" })).not.toBeInTheDocument();
+    expect(screen.getByText("七牛 AI 受限润色模式")).toBeInTheDocument();
   });
 });
