@@ -63,6 +63,25 @@
   font-size: 9px;
 }
 
+.result-provenance {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  margin-top: 4px;
+}
+
+.result-provenance strong {
+  background: #e3f1e8;
+  color: #287046;
+  font-size: 9px;
+  padding: 3px 6px;
+}
+
+.result-provenance span {
+  color: #8b877f;
+  font-size: 9px;
+}
+
 .model-picker {
   align-items: end;
   display: grid;

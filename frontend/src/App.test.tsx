@@ -132,9 +132,10 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
 
     await screen.findByText("来源证据");
+    expect(screen.getByText("可靠兜底骨架")).toBeInTheDocument();
     expect(screen.getByText("“甲”")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /质量门禁/ }));
     expect(screen.getByText("质量门禁通过")).toBeInTheDocument();
@@ -169,7 +170,7 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
 
     await screen.findByText("质量门禁阻断");
     expect(screen.getByText("证据与原文不匹配。")).toBeInTheDocument();
@@ -190,9 +191,9 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
     await screen.findByRole("button", { name: "下载已通过剧本 YAML" });
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
 
     await screen.findByText("质量门禁阻断");
     expect(screen.queryByRole("button", { name: "下载已通过剧本 YAML" })).not.toBeInTheDocument();
@@ -211,8 +212,9 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(await screen.findByRole("button", { name: /七牛 AI configured-model/ }));
-    fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 润色" }));
+    const aiMode = await screen.findByRole("button", { name: /七牛 AI · 完整剧本化/ });
+    expect(aiMode).toHaveClass("selected");
+    fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 生成完整剧本" }));
 
     await screen.findByText("来源证据");
     expect(fetchMock).toHaveBeenCalledWith(
@@ -240,12 +242,14 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: /可靠兜底/ }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
     await screen.findByRole("button", { name: "下载已通过剧本 YAML" });
-    fireEvent.click(screen.getByRole("button", { name: /七牛 AI configured-model/ }));
+    const aiMode = screen.getByRole("button", { name: /七牛 AI · 完整剧本化/ });
+    fireEvent.click(aiMode);
 
     expect(screen.queryByRole("button", { name: "下载已通过剧本 YAML" })).not.toBeInTheDocument();
-    expect(screen.getByText("七牛 AI · configured-model")).toBeInTheDocument();
+    expect(aiMode).toHaveClass("selected");
   });
 
   it("prefers a recommended text model when the configured default is unavailable", async () => {
@@ -283,7 +287,7 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
     await screen.findByText("来源证据");
     fireEvent.click(screen.getByRole("button", { name: "原始 YAML" }));
     fireEvent.change(screen.getByLabelText("可编辑剧本 YAML"), {
@@ -319,7 +323,7 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
-    fireEvent.click(screen.getByRole("button", { name: "生成结构化剧本" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
     await screen.findByText("来源证据");
     fireEvent.click(screen.getByRole("button", { name: "原始 YAML" }));
     fireEvent.click(screen.getByRole("button", { name: "重新校验 YAML" }));
