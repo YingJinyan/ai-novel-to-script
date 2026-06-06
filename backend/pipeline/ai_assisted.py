@@ -610,7 +610,7 @@ def _build_screenplay(
                 {
                     "id": location_id,
                     "name": location_name,
-                    "description": "七牛 AI 在场次中推断的地点，需由作者复核。",
+                    "description": "根据场次内容补充的地点，具体设定需由作者复核。",
                 }
             )
             location_lookup[_normalized(location_name)] = location_id
