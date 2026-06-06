@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
-import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel } from "./api";
+import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel, validateScreenplay } from "./api";
 import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
 
 type ResultTab = "script" | "coverage" | "quality" | "yaml";
@@ -107,11 +107,24 @@ export default function App() {
   const [selectedQiniuModel, setSelectedQiniuModel] = useState("");
   const [providerMessage, setProviderMessage] = useState("");
   const [providerLoading, setProviderLoading] = useState(false);
+  const [yamlDraft, setYamlDraft] = useState("");
+  const [yamlReport, setYamlReport] = useState<QualityReport | null>(null);
+  const [yamlMessage, setYamlMessage] = useState("");
+  const [yamlValidating, setYamlValidating] = useState(false);
+  const [yamlDirty, setYamlDirty] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
 
   const scenes = result?.screenplay.screenplay.scenes ?? [];
   const yamlText = useMemo(() => result ? yaml.dump(result.screenplay, { noRefs: true, lineWidth: 100 }) : "", [result]);
+  const activeQualityReport = yamlDirty ? null : yamlReport ?? result?.quality_report ?? null;
+
+  useEffect(() => {
+    setYamlDraft(yamlText);
+    setYamlReport(null);
+    setYamlMessage("");
+    setYamlDirty(false);
+  }, [yamlText]);
 
   async function refreshQiniuProvider() {
     setProviderLoading(true);
@@ -202,10 +215,51 @@ export default function App() {
   }
 
   function downloadYaml() {
-    const url = URL.createObjectURL(new Blob([yamlText], { type: "text/yaml;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob([yamlDraft || yamlText], { type: "text/yaml;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url; link.download = `${title.trim() || "screenplay"}.yaml`; link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function validateYamlDraft() {
+    if (!result) return;
+    setYamlValidating(true);
+    setYamlMessage("");
+    try {
+      const parsed = yaml.load(yamlDraft);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setYamlReport({
+          passed: false,
+          metrics: {},
+          issues: [{ code: "yaml_parse_error", severity: "error", message: "YAML 根节点必须是对象。", related_ids: [] }],
+        });
+        setYamlMessage("YAML 根节点必须是对象。");
+        setYamlDirty(false);
+        return;
+      }
+      const report = await validateScreenplay(parsed, result.source_texts);
+      setYamlReport(report);
+      setYamlDirty(false);
+      setYamlMessage(report.passed ? "当前 YAML 已通过质量门禁。" : "当前 YAML 被质量门禁阻断，请查看问题。");
+      if (report.passed) {
+        setResult((current) => current ? {
+          ...current,
+          screenplay: parsed as GenerationResponse["screenplay"],
+          quality_report: report,
+        } : current);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? `YAML 无法解析：${err.message}` : "YAML 无法解析。";
+      setYamlReport({
+        passed: false,
+        metrics: {},
+        issues: [{ code: "yaml_parse_error", severity: "error", message, related_ids: [] }],
+      });
+      setYamlMessage(message);
+      setYamlDirty(false);
+    } finally {
+      setYamlValidating(false);
+    }
   }
 
   function downloadValidationBundle() {
@@ -270,7 +324,7 @@ export default function App() {
             <nav className="tabs" aria-label="结果视图">
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>场次与证据 <b>{scenes.length}</b></button>
               <button className={tab === "coverage" ? "active" : ""} onClick={() => setTab("coverage")}>章节覆盖矩阵</button>
-              <button className={tab === "quality" ? "active" : ""} onClick={() => setTab("quality")}>质量门禁 <b className={result.quality_report.passed ? "good" : "bad"}>{result.quality_report.passed ? "通过" : "阻断"}</b></button>
+              <button className={tab === "quality" ? "active" : ""} onClick={() => setTab("quality")}>质量门禁 <b className={activeQualityReport ? activeQualityReport.passed ? "good" : "bad" : "pending"}>{activeQualityReport ? activeQualityReport.passed ? "通过" : "阻断" : "待校验"}</b></button>
               <button className={tab === "yaml" ? "active" : ""} onClick={() => setTab("yaml")}>原始 YAML</button>
             </nav>
 
@@ -281,9 +335,10 @@ export default function App() {
 
             {tab === "coverage" && <div className="coverage-view"><div className="section-intro"><h2>事件覆盖矩阵</h2><p>逐个事件检查是否被场次采用，避免同章内遗漏被隐藏。</p></div><div className="coverage-table"><div className="coverage-row head"><span>来源章节</span><span>叙事事件</span><span>关联场次</span><span>状态</span></div>{eventCoverage.map(({ chapter, event, linkedScenes }) => <div className="coverage-row" key={event.id}><span><strong>{chapter?.title ?? event.chapter_id}</strong><small>{event.chapter_id}</small></span><span><strong>{event.id}</strong><small>{event.summary}</small></span><span>{linkedScenes.map((s) => s.id).join(", ") || "—"}</span><span className={linkedScenes.length ? "covered" : "uncovered"}>{linkedScenes.length ? "已覆盖" : "未覆盖"}</span></div>)}</div></div>}
 
-            {tab === "quality" && <div className="quality-view"><div className={`gate ${result.quality_report.passed ? "pass" : "block"}`}><span>{result.quality_report.passed ? "✓" : "!"}</span><div><strong>{result.quality_report.passed ? "质量门禁通过" : "质量门禁阻断"}</strong><p>指标与问题来自后端校验报告。</p></div></div><div className="metric-grid">{Object.entries(result.quality_report.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>质量问题</h3><IssueList issues={result.quality_report.issues} /><h3>生成过程问题</h3><IssueList issues={result.issues} /></div>}
+            {tab === "quality" && activeQualityReport && <div className="quality-view"><div className={`gate ${activeQualityReport.passed ? "pass" : "block"}`}><span>{activeQualityReport.passed ? "✓" : "!"}</span><div><strong>{activeQualityReport.passed ? "质量门禁通过" : "质量门禁阻断"}</strong><p>指标与问题来自后端校验报告。</p></div></div><div className="metric-grid">{Object.entries(activeQualityReport.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>质量问题</h3><IssueList issues={activeQualityReport.issues} /><h3>生成过程问题</h3><IssueList issues={result.issues} /></div>}
+            {tab === "quality" && !activeQualityReport && <div className="quality-view"><div className="gate pending"><span>?</span><div><strong>质量门禁待校验</strong><p>当前 YAML 已修改，请重新校验后再判断是否可以交付。</p></div></div></div>}
 
-            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>原始 YAML 预览</h2><p>由接口返回的 <code>screenplay</code> 对象直接序列化。</p></div><pre>{yamlText}</pre></div>}
+            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" onClick={downloadYaml}>下载当前草稿</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}
           </>}
         </section>
       </main>

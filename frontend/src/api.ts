@@ -67,3 +67,12 @@ export const generateAI = (novelText: string, title: string, model: string) =>
     title,
     model,
   });
+
+export const validateScreenplay = (
+  screenplay: unknown,
+  sourceTexts: Record<string, string>,
+) =>
+  post<import("./types").QualityReport>("/api/v1/validate", {
+    screenplay,
+    source_texts: sourceTexts,
+  });
