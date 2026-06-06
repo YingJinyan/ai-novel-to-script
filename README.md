@@ -100,7 +100,7 @@ $env:QINIU_AI_API_KEY="你的真实 Key"
 py -3.10 -m uvicorn backend.main:app --reload
 ```
 
-页面会通过后端安全读取七牛 `/v1/models` 返回的可用模型，用户可直接选择。也可选填 `QINIU_AI_MODEL` 作为默认模型。不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
+页面会通过后端安全读取七牛 `/v1/models` 返回的可用模型，用户可直接选择。系统优先推荐适合结构化文本改编的模型，并标记可能较慢的推理模型与当前任务不推荐的视觉模型。也可选填 `QINIU_AI_MODEL` 作为默认模型。不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
 
 ## 质量检查
 
