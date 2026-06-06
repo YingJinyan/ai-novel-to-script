@@ -41,6 +41,18 @@ def test_example_passes_structure_and_business_rules(screenplay: dict) -> None:
     assert validate_source_evidence(screenplay, load_example_source_texts()) == []
 
 
+def test_schema_allows_empty_character_list_when_no_person_is_reliably_identified(
+    screenplay: dict,
+) -> None:
+    screenplay["story_bible"]["characters"] = []
+    for scene in screenplay["screenplay"]["scenes"]:
+        scene["character_ids"] = []
+        scene["beats"] = [beat for beat in scene["beats"] if beat["type"] != "dialogue"]
+
+    assert schema_errors(screenplay) == []
+    assert validate_references(screenplay) == []
+
+
 def test_rejects_source_with_fewer_than_three_chapters(screenplay: dict) -> None:
     screenplay["source"]["chapters"] = screenplay["source"]["chapters"][:2]
     screenplay["source"]["chapter_count"] = 2
