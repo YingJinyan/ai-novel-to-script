@@ -258,6 +258,28 @@ def _resolve_entity_reference(name: str, lookup: dict[str, str]) -> str | None:
     return scored[-1][1]
 
 
+def _entity_reference_is_ambiguous(name: str, lookup: dict[str, str]) -> bool:
+    """Return whether a non-exact reference is plausibly tied to multiple entities."""
+    reference_key = _entity_key(name)
+    if not reference_key:
+        return False
+
+    candidate_scores: dict[str, float] = {}
+    for candidate, entity_id in lookup.items():
+        candidate_key = _entity_key(candidate)
+        if not candidate_key:
+            continue
+        if len(min(reference_key, candidate_key, key=len)) >= 2 and (
+            reference_key in candidate_key or candidate_key in reference_key
+        ):
+            candidate_scores[entity_id] = 1.0
+            continue
+        score = SequenceMatcher(None, reference_key, candidate_key).ratio()
+        if score >= 0.78:
+            candidate_scores[entity_id] = max(score, candidate_scores.get(entity_id, 0.0))
+    return len(candidate_scores) > 1
+
+
 def _validation_feedback(exc: ValidationError) -> str:
     problems: list[str] = []
     for error in exc.errors(include_url=False, include_input=False)[:10]:
@@ -376,6 +398,43 @@ def _build_screenplay(
         )
 
     scenes: list[dict] = []
+
+    def resolve_character(name: str, scene_index: int) -> str:
+        character_id = _resolve_entity_reference(name, character_lookup)
+        if character_id is not None:
+            return character_id
+        if _entity_reference_is_ambiguous(name, character_lookup):
+            raise QiniuAIError(
+                "qiniu_provider_output_invalid",
+                f"七牛 AI 场次 {scene_index} 的人物称谓存在歧义：{name}",
+            )
+
+        cleaned_name = name.strip()
+        character_id = f"character_{len(characters) + 1:03d}"
+        characters.append(
+            {
+                "id": character_id,
+                "name": cleaned_name,
+                "aliases": [],
+                "role": "minor",
+                "description": "场次中出现的角色，身份需由作者复核。",
+                "goal": "待作者确认。",
+            }
+        )
+        character_lookup[_normalized(cleaned_name)] = character_id
+        build_issues.append(
+            {
+                "code": "ai_character_review_required",
+                "severity": "warning",
+                "message": (
+                    f"场次 {scene_index} 使用了 AI 推断的新人物“{cleaned_name}”，"
+                    "已加入人物表，请作者复核身份与称谓。"
+                ),
+                "related_ids": [character_id, f"scene_{scene_index:03d}"],
+            }
+        )
+        return character_id
+
     for index, item in enumerate(adaptation.scenes, start=1):
         exact_location_id = location_lookup.get(_normalized(item.location_name))
         location_id = _resolve_entity_reference(item.location_name, location_lookup)
@@ -421,12 +480,7 @@ def _build_screenplay(
         )
         character_ids: list[str] = []
         for name in item.character_names:
-            character_id = _resolve_entity_reference(name, character_lookup)
-            if character_id is None:
-                raise QiniuAIError(
-                    "qiniu_provider_output_invalid",
-                    f"七牛 AI 场次 {index} 引用了未定义人物：{name}",
-                )
+            character_id = resolve_character(name, index)
             if character_id not in character_ids:
                 character_ids.append(character_id)
 
@@ -434,12 +488,7 @@ def _build_screenplay(
         for beat in item.beats:
             converted = {"type": beat.type, "text": beat.text.strip()}
             if beat.type == "dialogue":
-                character_id = _resolve_entity_reference(beat.character_name, character_lookup)
-                if character_id is None:
-                    raise QiniuAIError(
-                        "qiniu_provider_output_invalid",
-                        f"七牛 AI 场次 {index} 的对白引用了未定义人物。",
-                    )
+                character_id = resolve_character(beat.character_name, index)
                 converted["character_id"] = character_id
                 if beat.parenthetical.strip():
                     converted["parenthetical"] = beat.parenthetical.strip()
