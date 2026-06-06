@@ -207,8 +207,10 @@ def _prompt(local_result: PipelineResult, evidence_candidates: list[dict]) -> li
         {
             "role": "user",
             "content": (
-                "请生成完整剧本化改编。建议总场次数为 4 到 9，单场 2 到 8 个节拍，"
-                "优先提取对话与地点变化，不要机械地一章只生成一场。\n"
+                "请生成完整剧本化改编。建议总场次数为 6 到 12，单场 3 到 10 个节拍，"
+                "优先提取对话与地点、时间变化，不要机械地一章只生成一场。"
+                "每个来源事件都必须在关联场次的动作或对白中被明确演出来，"
+                "不能只填写 source_event_numbers 来声称覆盖；不同地点、时间或冲突阶段应拆成不同场次。\n"
                 f"输出契约：{json.dumps(contract, ensure_ascii=False)}\n"
                 f"章节：{json.dumps(chapters, ensure_ascii=False)}\n"
                 f"原文证据单元：{json.dumps(evidence_for_prompt, ensure_ascii=False)}"
@@ -552,6 +554,26 @@ def _build_screenplay(
                 if character_id not in character_ids:
                     character_ids.append(character_id)
             beats.append(converted)
+
+        beat_text = "\n".join(beat["text"] for beat in beats).casefold()
+        for candidate, character_id in character_lookup.items():
+            if len(_entity_key(candidate)) >= 2 and candidate in beat_text and character_id not in character_ids:
+                character_ids.append(character_id)
+
+        if len(event_ids) > 1 and len(beats) < len(event_ids) * 3:
+            event_summaries = [events[number - 1]["summary"] for number in item.source_event_numbers]
+            build_issues.append(
+                {
+                    "code": "ai_scene_compression_review_required",
+                    "severity": "warning",
+                    "message": (
+                        f"场次 {index} 用 {len(beats)} 个节拍承载了 {len(event_ids)} 个剧情事件，"
+                        f"可能压缩过度。关联剧情：{'；'.join(event_summaries)}。"
+                        "建议作者确认每个事件都已被动作或对白充分呈现，必要时拆场。"
+                    ),
+                    "related_ids": [f"scene_{index:03d}", *event_ids],
+                }
+            )
 
         scenes.append(
             {
