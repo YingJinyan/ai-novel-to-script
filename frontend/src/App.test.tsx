@@ -132,6 +132,8 @@ describe("workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
     await screen.findByText("可以生成");
+    expect(screen.getByText("当前将使用可靠兜底")).toBeInTheDocument();
+    expect(screen.queryByText(/本地规则模式不猜测人物身份/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
 
     await screen.findByText("来源证据");
@@ -216,6 +218,8 @@ describe("workbench", () => {
     await screen.findByText("可以生成");
     const aiMode = await screen.findByRole("button", { name: /七牛 AI · 完整剧本化/ });
     expect(aiMode).toHaveClass("selected");
+    expect(screen.getByText("当前将使用七牛 AI 完整剧本化")).toBeInTheDocument();
+    expect(screen.getByText(/AI 会尝试识别人物与说话人/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 生成完整剧本" }));
 
     await screen.findByText("来源证据");

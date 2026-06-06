@@ -262,7 +262,7 @@ def analyze_chapters(novel_text: str) -> ChapterParseResult:
                 {
                     "code": "manual_character_review_required",
                     "severity": "warning",
-                    "message": f"{chapter.title} 包含对白，本地规则模式不猜测人物身份。",
+                    "message": f"{chapter.title} 包含对白，生成后请复核说话人归属。",
                     "related_ids": [chapter.id],
                 }
             )

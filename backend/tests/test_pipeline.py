@@ -104,7 +104,12 @@ def test_warns_instead_of_guessing_dialogue_speakers() -> None:
         "第三章 结束\n天亮了。"
     )
 
-    assert "manual_character_review_required" in {issue["code"] for issue in result.issues}
+    issue = next(
+        issue for issue in result.issues
+        if issue["code"] == "manual_character_review_required"
+    )
+    assert issue["message"] == "第一章 相遇 包含对白，生成后请复核说话人归属。"
+    assert "本地规则模式" not in issue["message"]
     assert result.screenplay["story_bible"]["characters"] == []
 
 
