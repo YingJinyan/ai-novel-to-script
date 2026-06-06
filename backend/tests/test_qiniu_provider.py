@@ -181,6 +181,45 @@ def test_full_ai_adaptation_deduplicates_character_aliases() -> None:
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
 
 
+def test_full_ai_adaptation_repairs_missing_structure_once() -> None:
+    class RepairClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            if self.calls == 1:
+                del result["characters"][0]["goal"]
+            else:
+                assert "characters.0.goal" in messages[-1]["content"]
+            return result
+
+    client = RepairClient()
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 2
+    assert result.screenplay["story_bible"]["characters"][0]["goal"] == "找到录音并公开真相。"
+
+
+def test_full_ai_adaptation_reports_specific_issue_after_failed_repair() -> None:
+    class InvalidClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            del result["characters"][0]["goal"]
+            return result
+
+    client = InvalidClient()
+    with pytest.raises(QiniuAIError) as error:
+        generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 2
+    assert error.value.code == "qiniu_provider_output_invalid"
+    assert "characters.0.goal" in str(error.value)
+
+
 def test_full_ai_adaptation_rejects_uncovered_events() -> None:
     class IncompleteClient(FakeQiniuClient):
         def complete_json(self, messages: list[dict[str, str]]) -> dict:

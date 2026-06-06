@@ -219,6 +219,37 @@ def _normalized(value: str) -> str:
     return value.strip().casefold()
 
 
+def _validation_feedback(exc: ValidationError) -> str:
+    problems: list[str] = []
+    for error in exc.errors(include_url=False, include_input=False)[:10]:
+        path = ".".join(str(item) for item in error["loc"]) or "root"
+        problems.append(f"{path}: {error['msg']}")
+    return "；".join(problems)
+
+
+def _repair_prompt(
+    original_messages: list[dict[str, str]],
+    invalid_output: dict,
+    feedback: str,
+) -> list[dict[str, str]]:
+    return [
+        *original_messages,
+        {
+            "role": "assistant",
+            "content": json.dumps(invalid_output, ensure_ascii=False),
+        },
+        {
+            "role": "user",
+            "content": (
+                "上一个 JSON 未通过完整剧本结构校验。请保留正确内容，只修复下列问题，"
+                "然后重新返回一个完整 JSON 对象。不得删除来源章节或事件来规避校验，"
+                "不得编造 evidence_id，不要输出解释或 Markdown。\n"
+                f"校验问题：{feedback}"
+            ),
+        },
+    ]
+
+
 def _build_screenplay(
     local_result: PipelineResult,
     adaptation: FullScreenplayAdaptation,
@@ -415,22 +446,36 @@ def generate_qiniu_screenplay(
     evidence_candidates = _evidence_candidates(local_result)
     settings = QiniuSettings.from_env()
     provider = client or QiniuClient(settings.with_model(model) if model.strip() else settings)
-    try:
-        adaptation = FullScreenplayAdaptation.model_validate(
-            provider.complete_json(_prompt(local_result, evidence_candidates))
-        )
-    except ValidationError as exc:
+    messages = _prompt(local_result, evidence_candidates)
+    output = provider.complete_json(messages)
+    feedback = ""
+    screenplay: dict | None = None
+    for attempt in range(2):
+        try:
+            adaptation = FullScreenplayAdaptation.model_validate(output)
+            screenplay = _build_screenplay(
+                local_result,
+                adaptation,
+                evidence_candidates,
+                provider.settings.model,
+            )
+            break
+        except ValidationError as exc:
+            feedback = _validation_feedback(exc)
+        except QiniuAIError as exc:
+            if exc.code != "qiniu_provider_output_invalid":
+                raise
+            feedback = str(exc)
+
+        if attempt == 0:
+            output = provider.complete_json(_repair_prompt(messages, output, feedback))
+
+    if screenplay is None:
         raise QiniuAIError(
             "qiniu_provider_output_invalid",
-            "七牛 AI 输出缺少完整人物、地点、事件或场次结构。建议更换文本模型后重试。",
-        ) from exc
+            f"七牛 AI 自动修复后仍未通过完整结构校验：{feedback}",
+        )
 
-    screenplay = _build_screenplay(
-        local_result,
-        adaptation,
-        evidence_candidates,
-        provider.settings.model,
-    )
     issues = (
         *(
             issue
