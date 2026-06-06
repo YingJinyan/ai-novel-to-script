@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from dataclasses import replace
 from typing import Any
@@ -27,20 +28,27 @@ class QiniuSettings:
     api_key: str
     model: str
     base_url: str = DEFAULT_QINIU_BASE_URL
-    timeout_seconds: float = 90.0
+    timeout_seconds: float = 180.0
+    max_tokens: int = 12_000
 
     @classmethod
     def from_env(cls) -> "QiniuSettings":
-        timeout = os.getenv("QINIU_AI_TIMEOUT_SECONDS", "90")
+        timeout = os.getenv("QINIU_AI_TIMEOUT_SECONDS", "180")
         try:
             timeout_seconds = max(1.0, min(float(timeout), 300.0))
         except ValueError:
-            timeout_seconds = 90.0
+            timeout_seconds = 180.0
+        max_tokens = os.getenv("QINIU_AI_MAX_TOKENS", "12000")
+        try:
+            parsed_max_tokens = max(1_000, min(int(max_tokens), 16_000))
+        except ValueError:
+            parsed_max_tokens = 12_000
         return cls(
             api_key=os.getenv("QINIU_AI_API_KEY", "").strip(),
             model=os.getenv("QINIU_AI_MODEL", "").strip(),
             base_url=os.getenv("QINIU_AI_BASE_URL", DEFAULT_QINIU_BASE_URL).strip().rstrip("/"),
             timeout_seconds=timeout_seconds,
+            max_tokens=parsed_max_tokens,
         )
 
     @property
@@ -73,25 +81,43 @@ class QiniuClient:
                 "七牛 AI 未配置。请设置 QINIU_AI_API_KEY 与 QINIU_AI_MODEL。",
             )
 
-        payload = {
-            "model": self.settings.model,
-            "messages": messages,
-            "stream": False,
-            "temperature": 0.2,
-            "max_tokens": 6_000,
-            "response_format": {"type": "json_object"},
-        }
         client = self._http_client or httpx.Client(timeout=self.settings.timeout_seconds)
         should_close = self._http_client is None
         try:
-            response = client.post(
-                f"{self.settings.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.settings.api_key}"},
-                json=payload,
-            )
-            response.raise_for_status()
+            for attempt in range(2):
+                retry_messages = messages
+                if attempt:
+                    retry_messages = [
+                        *messages,
+                        {
+                            "role": "system",
+                            "content": (
+                                "上次响应不是可解析的 JSON 对象。请重新生成，只返回一个完整 JSON 对象，"
+                                "不要使用 Markdown 代码块，不要添加解释文字。"
+                            ),
+                        },
+                    ]
+                response = client.post(
+                    f"{self.settings.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.api_key}"},
+                    json={
+                        "model": self.settings.model,
+                        "messages": retry_messages,
+                        "stream": False,
+                        "temperature": 0.1,
+                        "max_tokens": self.settings.max_tokens,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                response.raise_for_status()
+                parsed = self._response_json_object(response)
+                if parsed is not None:
+                    return parsed
         except httpx.TimeoutException as exc:
-            raise QiniuAIError("qiniu_provider_timeout", "七牛 AI 请求超时。") from exc
+            raise QiniuAIError(
+                "qiniu_provider_timeout",
+                "七牛 AI 请求超时。建议改用快速文本模型，或提高 QINIU_AI_TIMEOUT_SECONDS。",
+            ) from exc
         except httpx.HTTPStatusError as exc:
             raise QiniuAIError(
                 "qiniu_provider_http_error",
@@ -103,20 +129,35 @@ class QiniuClient:
             if should_close:
                 client.close()
 
+        raise QiniuAIError(
+            "qiniu_provider_invalid_response",
+            "七牛 AI 自动重试后仍未返回完整 JSON 对象。建议改用 deepseek-v3、qwen3-max 等文本模型。",
+        )
+
+    @staticmethod
+    def _response_json_object(response: httpx.Response) -> dict[str, Any] | None:
+        """Parse strict, fenced, or prose-wrapped JSON without accepting non-objects."""
         try:
             content = response.json()["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError, ValueError) as exc:
-            raise QiniuAIError(
-                "qiniu_provider_invalid_response",
-                "七牛 AI 未返回可解析的 JSON 对象。",
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise QiniuAIError(
-                "qiniu_provider_invalid_response",
-                "七牛 AI 返回的 JSON 根节点必须是对象。",
-            )
-        return parsed
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+        if not isinstance(content, str):
+            return None
+
+        candidates = [content.strip()]
+        fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", content, re.DOTALL | re.IGNORECASE)
+        if fenced:
+            candidates.append(fenced.group(1))
+        candidates.extend(content[index:] for index, character in enumerate(content) if character == "{")
+        decoder = json.JSONDecoder()
+        for candidate in candidates:
+            try:
+                parsed, _ = decoder.raw_decode(candidate.lstrip())
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return None
 
     def list_models(self) -> list[str]:
         """Return model IDs available to the configured Qiniu account."""

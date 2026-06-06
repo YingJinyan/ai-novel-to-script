@@ -79,7 +79,7 @@ def test_qiniu_client_uses_json_object_contract_without_leaking_key() -> None:
     assert captured["url"] == "https://api.qnaigc.com/v1/chat/completions"
     assert captured["authorization"] == "Bearer super-secret"
     assert captured["payload"]["model"] == "chosen-model"
-    assert captured["payload"]["max_tokens"] == 6_000
+    assert captured["payload"]["max_tokens"] == 12_000
     assert captured["payload"]["response_format"] == {"type": "json_object"}
 
 
@@ -139,11 +139,18 @@ def test_ai_refinement_rejects_action_without_exact_evidence_quote() -> None:
 
 
 def test_qiniu_client_rejects_non_json_content() -> None:
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
             200,
             json={"choices": [{"message": {"content": "not-json"}}]},
         )
+
+    transport = httpx.MockTransport(
+        handler
     )
     client = QiniuClient(
         QiniuSettings(api_key="secret", model="model"),
@@ -154,6 +161,39 @@ def test_qiniu_client_rejects_non_json_content() -> None:
         client.complete_json([])
 
     assert error.value.code == "qiniu_provider_invalid_response"
+    assert attempts == 2
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '```json\n{"ok": true}\n```',
+        '结构化结果如下：\n{"ok": true}\n请查收。',
+    ],
+)
+def test_qiniu_client_accepts_fenced_or_prose_wrapped_json(content: str) -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+        )
+    )
+    client = QiniuClient(
+        QiniuSettings(api_key="secret", model="model"),
+        http_client=httpx.Client(transport=transport),
+    )
+
+    assert client.complete_json([]) == {"ok": True}
+
+
+def test_qiniu_settings_use_safe_configurable_limits(monkeypatch) -> None:
+    monkeypatch.setenv("QINIU_AI_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("QINIU_AI_MAX_TOKENS", "14000")
+
+    settings = QiniuSettings.from_env()
+
+    assert settings.timeout_seconds == 240
+    assert settings.max_tokens == 14_000
 
 
 def test_qiniu_client_lists_available_model_ids_without_exposing_key() -> None:

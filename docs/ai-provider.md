@@ -20,6 +20,15 @@ py -3.10 -m uvicorn backend.main:app --reload
 
 密钥只由后端读取。系统通过官方 `/v1/models` 接口读取当前账号可用模型，前端只接收模型 ID 列表，并允许用户选择本次生成使用的模型。可选环境变量 `QINIU_AI_MODEL` 用于设置默认模型。状态与模型接口都不会返回密钥。
 
+慢模型可按需提高超时时间和最大输出长度：
+
+```powershell
+$env:QINIU_AI_TIMEOUT_SECONDS="240"
+$env:QINIU_AI_MAX_TOKENS="14000"
+```
+
+客户端兼容纯 JSON、Markdown JSON 代码块和带简短说明的 JSON，并会在结构化响应无法解析时自动重试一次。超时不会伪装成成功。
+
 ## 为什么采用“确定性骨架 + AI 受限润色”
 
 模型不直接生成整份剧本 YAML。系统先用本地规则生成符合 Schema 的章节、事件、场次与证据链，再允许模型润色：
