@@ -151,6 +151,33 @@ describe("workbench", () => {
     expect(screen.getByText(/project\.generation.*仅用于项目级记录生成来源和模型/)).toBeInTheDocument();
   });
 
+  it("shows dialogue speakers and parentheticals in scene review", async () => {
+    const screenplayWithDialogue: any = structuredClone(generationPayload);
+    screenplayWithDialogue.screenplay.story_bible.characters = [
+      { id: "character_001", name: "林夏", aliases: [], role: "protagonist" },
+    ];
+    screenplayWithDialogue.screenplay.screenplay.scenes[0].character_ids = ["character_001"];
+    screenplayWithDialogue.screenplay.screenplay.scenes[0].beats.push({
+      type: "dialogue",
+      text: "我会找到真相。",
+      character_id: "character_001",
+      parenthetical: "(坚定)",
+    });
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify(screenplayWithDialogue), { status: 200 }),
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
+
+    await screen.findByText("我会找到真相。");
+    expect(screen.getByText("林夏", { selector: ".beat-meta strong" })).toBeInTheDocument();
+    expect(screen.getByText("(坚定)", { selector: ".beat-meta small" })).toBeInTheDocument();
+  });
+
   it("shows quality gate diagnostics returned by the backend", async () => {
     const blockedReport = {
       passed: false,
