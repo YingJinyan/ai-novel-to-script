@@ -309,6 +309,18 @@
   opacity: 0.72;
 }
 
+.generate-box {
+  grid-template-columns: minmax(160px, 1fr) 130px auto;
+}
+
+.generate-box select {
+  background: #fffdf8;
+  border: 1px solid #d9d1c5;
+  height: 36px;
+  outline-color: #b77a20;
+  padding: 8px;
+}
+
 @media (max-width: 640px) {
   .download-actions {
     align-items: stretch;
@@ -321,5 +333,9 @@
 
   .result-guide {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .generate-box {
+    grid-template-columns: 1fr;
   }
 }
