@@ -1,0 +1,39 @@
+.panel-actions,
+.download-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.download.secondary {
+  background: #fffdf8;
+  border: 1px solid #183044;
+  box-shadow: none;
+  color: #183044;
+}
+
+.blocked-quality {
+  margin-top: 16px;
+  padding-bottom: 8px;
+}
+
+.blocked-quality .metric-grid {
+  margin: 16px 18px 8px;
+}
+
+.source-panel textarea:disabled,
+.generate-box input:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+@media (max-width: 640px) {
+  .download-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

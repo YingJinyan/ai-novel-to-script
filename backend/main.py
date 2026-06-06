@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,21 @@ from fastapi.responses import JSONResponse
 
 from backend.models import ErrorResponse, MAX_SOURCE_CHARACTERS
 from backend.routes import router
+
+
+DEFAULT_FRONTEND_ORIGINS = (
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+)
+
+
+def frontend_origins() -> list[str]:
+    configured = os.getenv("FRONTEND_ORIGINS", "")
+    return [origin.strip() for origin in configured.split(",") if origin.strip()] or list(
+        DEFAULT_FRONTEND_ORIGINS
+    )
 
 
 def create_app() -> FastAPI:
@@ -20,12 +37,7 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-            "http://127.0.0.1:3000",
-            "http://localhost:3000",
-        ],
+        allow_origins=frontend_origins(),
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type"],
