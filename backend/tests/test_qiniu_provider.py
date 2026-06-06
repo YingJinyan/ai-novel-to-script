@@ -109,6 +109,8 @@ def test_ai_prompt_requires_explicit_event_dramatization() -> None:
     assert "本次要求总场次数为 5 到 9" in messages[1]["content"]
     assert "每个来源事件都必须在关联场次的动作或对白中被明确演出来" in messages[1]["content"]
     assert "不能只填写 source_event_numbers 来声称覆盖" in messages[1]["content"]
+    assert "输出语言必须与原文一致" in messages[0]["content"]
+    assert "中文原文必须使用中文人物名" in messages[0]["content"]
 
 
 def test_qiniu_client_uses_json_object_contract_without_leaking_key() -> None:
@@ -373,6 +375,61 @@ def test_balanced_scene_density_repairs_an_overcompressed_result() -> None:
     assert client.calls == 2
     assert len(result.screenplay["screenplay"]["scenes"]) == 5
     assert result.screenplay["adaptation_control"]["target_scene_count"] == 7
+
+
+def test_chinese_source_repairs_a_predominantly_english_adaptation() -> None:
+    class LanguageRepairClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            if self.calls == 1:
+                result["logline"] = "A long English adaptation " * 8
+                result["premise"] = "English premise " * 10
+                result["synopsis"] = "English synopsis " * 10
+                for event in result["events"]:
+                    event["summary"] = "English event summary " * 10
+                for scene in result["scenes"]:
+                    scene["purpose"] = "English purpose " * 10
+                    for beat in scene["beats"]:
+                        beat["text"] = "English screenplay action and dialogue " * 10
+            else:
+                assert "输出语言与原文不一致" in messages[-1]["content"]
+            return result
+
+    client = LanguageRepairClient()
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 2
+    assert result.screenplay["screenplay"]["synopsis"] == "林夏循着旧信留下的线索，在车站找到被隐藏的录音。"
+
+
+def test_chinese_source_blocks_persistently_english_adaptation_with_diagnostic() -> None:
+    class EnglishOnlyClient(FakeQiniuClient):
+        calls = 0
+
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            self.calls += 1
+            result = full_adaptation()
+            result["logline"] = "A long English adaptation " * 8
+            result["premise"] = "English premise " * 10
+            result["synopsis"] = "English synopsis " * 10
+            for event in result["events"]:
+                event["summary"] = "English event summary " * 10
+            for scene in result["scenes"]:
+                scene["purpose"] = "English purpose " * 10
+                for beat in scene["beats"]:
+                    beat["text"] = "English screenplay action and dialogue " * 10
+            return result
+
+    client = EnglishOnlyClient()
+    with pytest.raises(QiniuAIError) as error:
+        generate_qiniu_screenplay(NOVEL, "雨夜来信", client=client)
+
+    assert client.calls == 2
+    assert error.value.diagnostics[0]["code"] == "ai_output_language_mismatch"
+    assert "输出语言与原文不一致" in str(error.value)
 
 
 def test_full_ai_adaptation_reports_specific_issue_after_failed_repair() -> None:
