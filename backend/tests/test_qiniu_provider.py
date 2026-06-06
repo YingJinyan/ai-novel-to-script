@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from backend.pipeline.ai_assisted import _evidence_candidates, generate_qiniu_screenplay
+from backend.pipeline.ai_assisted import _evidence_candidates, _prompt, generate_qiniu_screenplay
 from backend.pipeline.local_rules import generate_local_screenplay
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import validate_screenplay
@@ -99,6 +99,15 @@ def test_evidence_candidates_merge_adjacent_sentences_without_losing_source_posi
         result.source_texts[first["chapter_id"]][first["start_char"]:first["end_char"]]
         == first["quote"]
     )
+
+
+def test_ai_prompt_requires_explicit_event_dramatization() -> None:
+    result = generate_local_screenplay(NOVEL)
+    messages = _prompt(result, _evidence_candidates(result))
+
+    assert "建议总场次数为 6 到 12" in messages[1]["content"]
+    assert "每个来源事件都必须在关联场次的动作或对白中被明确演出来" in messages[1]["content"]
+    assert "不能只填写 source_event_numbers 来声称覆盖" in messages[1]["content"]
 
 
 def test_qiniu_client_uses_json_object_contract_without_leaking_key() -> None:
@@ -251,6 +260,47 @@ def test_full_ai_adaptation_registers_scene_only_character_for_author_review() -
     assert result.screenplay["screenplay"]["scenes"][2]["beats"][-1]["character_id"] == inferred["id"]
     assert "ai_character_review_required" in {issue["code"] for issue in result.issues}
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+
+
+def test_full_ai_adaptation_adds_characters_explicitly_mentioned_in_beats() -> None:
+    class MentionedCharacterClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            result = full_adaptation()
+            result["characters"].append(
+                {
+                    "name": "站长",
+                    "aliases": [],
+                    "role": "supporting",
+                    "description": "车站的站长。",
+                    "goal": "保护录音。",
+                }
+            )
+            result["scenes"][1]["beats"][0]["text"] = "站长挡在门前，林夏停下脚步。"
+            return result
+
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=MentionedCharacterClient())
+
+    assert result.screenplay["screenplay"]["scenes"][1]["character_ids"] == [
+        "character_001",
+        "character_002",
+    ]
+
+
+def test_full_ai_adaptation_warns_when_multiple_events_are_overcompressed() -> None:
+    class CompressedSceneClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            result = full_adaptation()
+            result["scenes"][0]["source_event_numbers"] = [1, 2]
+            return result
+
+    result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=CompressedSceneClient())
+
+    issue = next(
+        issue for issue in result.issues if issue["code"] == "ai_scene_compression_review_required"
+    )
+    assert "场次 1" in issue["message"]
+    assert "林夏发现旧信" in issue["message"]
+    assert issue["related_ids"] == ["scene_001", "event_001", "event_002"]
 
 
 def test_full_ai_adaptation_reports_ambiguous_character_with_scene_and_plot_context() -> None:
