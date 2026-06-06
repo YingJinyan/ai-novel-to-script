@@ -288,6 +288,21 @@ def _validation_feedback(exc: ValidationError) -> str:
     return "；".join(problems)
 
 
+def _validation_diagnostics(exc: ValidationError) -> list[dict]:
+    diagnostics: list[dict] = []
+    for error in exc.errors(include_url=False, include_input=False)[:10]:
+        path = ".".join(str(item) for item in error["loc"]) or "root"
+        diagnostics.append(
+            {
+                "code": "ai_structure_field_invalid",
+                "severity": "error",
+                "message": f"AI 输出字段 `{path}` 不符合要求：{error['msg']}。建议更换模型或重试。",
+                "related_ids": [path],
+            }
+        )
+    return diagnostics
+
+
 def _repair_prompt(
     original_messages: list[dict[str, str]],
     invalid_output: dict,
@@ -323,10 +338,23 @@ def _build_screenplay(
     evidence_by_id = {item["evidence_id"]: item for item in evidence_candidates}
     chapter_ids = {item["id"] for item in screenplay["source"]["chapters"]}
 
-    if {event.chapter_id for event in adaptation.events} != chapter_ids:
+    event_chapter_ids = {event.chapter_id for event in adaptation.events}
+    if event_chapter_ids != chapter_ids:
+        missing_chapters = sorted(chapter_ids - event_chapter_ids)
         raise QiniuAIError(
             "qiniu_provider_output_invalid",
             "七牛 AI 未为每个来源章节提取至少一个事件。",
+            diagnostics=[
+                {
+                    "code": "ai_chapter_event_missing",
+                    "severity": "error",
+                    "message": (
+                        f"以下章节没有提取到剧情事件：{', '.join(missing_chapters) or '未知章节'}。"
+                        "建议更换模型或重试，不需要修改原小说。"
+                    ),
+                    "related_ids": missing_chapters,
+                }
+            ],
         )
 
     characters: list[dict] = []
@@ -382,6 +410,18 @@ def _build_screenplay(
             raise QiniuAIError(
                 "qiniu_provider_output_invalid",
                 f"七牛 AI 事件 {index} 引用了无效的原文证据 ID。",
+                diagnostics=[
+                    {
+                        "code": "ai_event_evidence_invalid",
+                        "severity": "error",
+                        "message": (
+                            f"剧情事件 {index}“{item.summary.strip()}”引用了无效证据"
+                            f"“{item.evidence_id}”，关联章节为 {item.chapter_id}。"
+                            "系统无法确认该剧情来自原文，建议重试。"
+                        ),
+                        "related_ids": [item.chapter_id, item.evidence_id],
+                    }
+                ],
             )
         events.append(
             {
@@ -399,14 +439,31 @@ def _build_screenplay(
 
     scenes: list[dict] = []
 
-    def resolve_character(name: str, scene_index: int) -> str:
+    def resolve_character(name: str, scene_index: int, event_numbers: list[int]) -> str:
         character_id = _resolve_entity_reference(name, character_lookup)
         if character_id is not None:
             return character_id
         if _entity_reference_is_ambiguous(name, character_lookup):
+            event_summaries = [
+                events[number - 1]["summary"]
+                for number in event_numbers
+                if 0 < number <= len(events)
+            ]
             raise QiniuAIError(
                 "qiniu_provider_output_invalid",
                 f"七牛 AI 场次 {scene_index} 的人物称谓存在歧义：{name}",
+                diagnostics=[
+                    {
+                        "code": "ai_character_reference_ambiguous",
+                        "severity": "error",
+                        "message": (
+                            f"场次 {scene_index} 的人物称谓“{name}”可能对应多个人物，"
+                            f"无法安全归属。关联剧情：{'；'.join(event_summaries) or '未识别'}。"
+                            "建议重试，或生成后在人物表中统一称谓。"
+                        ),
+                        "related_ids": [f"scene_{scene_index:03d}"],
+                    }
+                ],
             )
 
         cleaned_name = name.strip()
@@ -480,7 +537,7 @@ def _build_screenplay(
         )
         character_ids: list[str] = []
         for name in item.character_names:
-            character_id = resolve_character(name, index)
+            character_id = resolve_character(name, index, item.source_event_numbers)
             if character_id not in character_ids:
                 character_ids.append(character_id)
 
@@ -488,7 +545,7 @@ def _build_screenplay(
         for beat in item.beats:
             converted = {"type": beat.type, "text": beat.text.strip()}
             if beat.type == "dialogue":
-                character_id = resolve_character(beat.character_name, index)
+                character_id = resolve_character(beat.character_name, index, item.source_event_numbers)
                 converted["character_id"] = character_id
                 if beat.parenthetical.strip():
                     converted["parenthetical"] = beat.parenthetical.strip()
@@ -569,6 +626,7 @@ def generate_qiniu_screenplay(
     messages = _prompt(local_result, evidence_candidates)
     output = provider.complete_json(messages)
     feedback = ""
+    diagnostics: list[dict] = []
     screenplay: dict | None = None
     build_issues: list[dict] = []
     for attempt in range(2):
@@ -585,10 +643,12 @@ def generate_qiniu_screenplay(
             break
         except ValidationError as exc:
             feedback = _validation_feedback(exc)
+            diagnostics = _validation_diagnostics(exc)
         except QiniuAIError as exc:
             if exc.code != "qiniu_provider_output_invalid":
                 raise
             feedback = str(exc)
+            diagnostics = exc.diagnostics
 
         if attempt == 0:
             output = provider.complete_json(_repair_prompt(messages, output, feedback))
@@ -597,6 +657,7 @@ def generate_qiniu_screenplay(
         raise QiniuAIError(
             "qiniu_provider_output_invalid",
             f"七牛 AI 自动修复后仍未通过完整结构校验：{feedback}",
+            diagnostics=diagnostics,
         )
 
     issues = (

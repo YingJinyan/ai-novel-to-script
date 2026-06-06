@@ -250,6 +250,31 @@ def test_full_ai_adaptation_registers_scene_only_character_for_author_review() -
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
 
 
+def test_full_ai_adaptation_reports_ambiguous_character_with_scene_and_plot_context() -> None:
+    class AmbiguousCharacterClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            result = full_adaptation()
+            result["characters"][0]["name"] = "林夏雨"
+            result["characters"].append(
+                {
+                    "name": "林夏雪",
+                    "aliases": [],
+                    "role": "supporting",
+                    "description": "另一名参与调查的人。",
+                    "goal": "找到录音。",
+                }
+            )
+            return result
+
+    with pytest.raises(QiniuAIError) as error:
+        generate_qiniu_screenplay(NOVEL, "雨夜来信", client=AmbiguousCharacterClient())
+
+    assert error.value.diagnostics[0]["code"] == "ai_character_reference_ambiguous"
+    assert "场次 1" in error.value.diagnostics[0]["message"]
+    assert "林夏发现旧信" in error.value.diagnostics[0]["message"]
+    assert "林夏" in error.value.diagnostics[0]["message"]
+
+
 def test_full_ai_adaptation_repairs_missing_structure_once() -> None:
     class RepairClient(FakeQiniuClient):
         calls = 0

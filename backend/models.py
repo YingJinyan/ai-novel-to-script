@@ -47,6 +47,11 @@ class ErrorResponse(BaseModel):
     code: str
     message: str
     related_ids: list[str] = Field(default_factory=list)
+    diagnostics: list[ValidationIssue] = Field(default_factory=list)
+
+    def response_content(self) -> dict[str, Any]:
+        """Keep the established error shape while adding diagnostics only when useful."""
+        return self.model_dump(exclude={"diagnostics"} if not self.diagnostics else set())
 
 
 class QualityGateErrorResponse(ErrorResponse):

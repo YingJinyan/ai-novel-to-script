@@ -18,9 +18,15 @@ DEFAULT_QINIU_BASE_URL = "https://api.qnaigc.com/v1"
 class QiniuAIError(RuntimeError):
     """A safe, structured provider failure that never exposes credentials."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        diagnostics: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.diagnostics = diagnostics or []
 
 
 @dataclass(frozen=True)

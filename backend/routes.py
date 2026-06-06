@@ -83,8 +83,13 @@ def qiniu_provider_models() -> ProviderModelsResponse | JSONResponse:
         models = QiniuClient(settings).list_models()
     except QiniuAIError as exc:
         status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
-        error = ErrorResponse(code=exc.code, message=str(exc), related_ids=[])
-        return JSONResponse(status_code=status_code, content=error.model_dump())
+        error = ErrorResponse(
+            code=exc.code,
+            message=str(exc),
+            related_ids=[],
+            diagnostics=[ValidationIssue.model_validate(issue) for issue in exc.diagnostics],
+        )
+        return JSONResponse(status_code=status_code, content=error.response_content())
     return ProviderModelsResponse(
         provider="qiniu-ai",
         selected_model=settings.model,
@@ -145,7 +150,7 @@ def generate_project_local(
             message=issue["message"],
             related_ids=issue["related_ids"],
         )
-        return JSONResponse(status_code=422, content=error.model_dump())
+        return JSONResponse(status_code=422, content=error.response_content())
 
     result = generate_local_screenplay(request.novel_text, title=request.title)
     quality_report = ValidationReport.model_validate(
@@ -158,7 +163,7 @@ def generate_project_local(
             related_ids=[],
             quality_report=quality_report,
         )
-        return JSONResponse(status_code=500, content=error.model_dump())
+        return JSONResponse(status_code=500, content=error.response_content())
     return LocalGenerationResponse(
         screenplay=result.screenplay,
         source_texts=result.source_texts,
@@ -191,7 +196,7 @@ def generate_project_ai(
             message=issue["message"],
             related_ids=issue["related_ids"],
         )
-        return JSONResponse(status_code=422, content=error.model_dump())
+        return JSONResponse(status_code=422, content=error.response_content())
 
     try:
         result = generate_qiniu_screenplay(
@@ -203,8 +208,13 @@ def generate_project_ai(
         status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
         if exc.code == "ai_source_text_too_long":
             status_code = 422
-        error = ErrorResponse(code=exc.code, message=str(exc), related_ids=[])
-        return JSONResponse(status_code=status_code, content=error.model_dump())
+        error = ErrorResponse(
+            code=exc.code,
+            message=str(exc),
+            related_ids=[],
+            diagnostics=[ValidationIssue.model_validate(issue) for issue in exc.diagnostics],
+        )
+        return JSONResponse(status_code=status_code, content=error.response_content())
 
     quality_report = ValidationReport.model_validate(
         validate_screenplay(result.screenplay, result.source_texts)
@@ -216,7 +226,7 @@ def generate_project_ai(
             related_ids=[],
             quality_report=quality_report,
         )
-        return JSONResponse(status_code=500, content=error.model_dump())
+        return JSONResponse(status_code=500, content=error.response_content())
     return LocalGenerationResponse(
         screenplay=result.screenplay,
         source_texts=result.source_texts,

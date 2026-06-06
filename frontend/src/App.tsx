@@ -158,6 +158,7 @@ export default function App() {
   const [loading, setLoading] = useState<"parse" | "generate" | null>(null);
   const [generationSeconds, setGenerationSeconds] = useState(0);
   const [error, setError] = useState("");
+  const [errorDiagnostics, setErrorDiagnostics] = useState<Issue[]>([]);
   const [blockedQuality, setBlockedQuality] = useState<QualityReport | null>(null);
   const [generationMode, setGenerationMode] = useState<GenerationMode>("local");
   const [qiniuModels, setQiniuModels] = useState<string[]>([]);
@@ -235,11 +236,12 @@ export default function App() {
 
   async function handleParse() {
     if (!novelText.trim()) return setError("请先粘贴或导入小说正文。");
-    setLoading("parse"); setError(""); setBlockedQuality(null); setResult(null);
+    setLoading("parse"); setError(""); setErrorDiagnostics([]); setBlockedQuality(null); setResult(null);
     try {
       setParsed(await parseNovel(novelText));
     } catch (err) {
       setParsed(null); setError(err instanceof Error ? err.message : "解析请求失败。");
+      setErrorDiagnostics(err instanceof ApiError ? (err.payload?.diagnostics as Issue[] | undefined) ?? [] : []);
     } finally { setLoading(null); }
   }
 
@@ -249,7 +251,7 @@ export default function App() {
     if (generationMode === "qiniu" && !selectedQiniuModel) {
       return setError("七牛 AI 尚无可用模型，请刷新模型列表或使用可靠兜底模式。");
     }
-    setLoading("generate"); setError(""); setBlockedQuality(null); setResult(null);
+    setLoading("generate"); setError(""); setErrorDiagnostics([]); setBlockedQuality(null); setResult(null);
     const requestedRevision = sourceRevision.current;
     try {
       const generated = generationMode === "qiniu"
@@ -260,6 +262,7 @@ export default function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成请求失败。");
+      setErrorDiagnostics(err instanceof ApiError ? (err.payload?.diagnostics as Issue[] | undefined) ?? [] : []);
       if (err instanceof ApiError && err.payload?.quality_report) {
         setBlockedQuality(err.payload.quality_report as QualityReport);
       }
@@ -271,7 +274,7 @@ export default function App() {
     sourceRevision.current += 1;
     const importedText = await file.text();
     sourceRevision.current += 1;
-    setNovelText(importedText); setParsed(null); setResult(null); setBlockedQuality(null); setError("");
+    setNovelText(importedText); setParsed(null); setResult(null); setBlockedQuality(null); setError(""); setErrorDiagnostics([]);
   }
 
   function loadSample() {
@@ -282,6 +285,7 @@ export default function App() {
     setResult(null);
     setBlockedQuality(null);
     setError("");
+    setErrorDiagnostics([]);
   }
 
   function selectGenerationMode(mode: GenerationMode) {
@@ -290,6 +294,7 @@ export default function App() {
     setResult(null);
     setBlockedQuality(null);
     setError("");
+    setErrorDiagnostics([]);
   }
 
   function downloadYaml() {
@@ -422,7 +427,7 @@ export default function App() {
         </section>
 
         {loading === "generate" && <div role="status" className="generation-progress"><strong>{generationMode === "qiniu" ? `七牛 AI 正在生成 · ${generationSeconds} 秒` : "可靠兜底正在生成"}</strong><span>{generationMode === "qiniu" ? generationProgress : "正在构建可追溯骨架。"}</span></div>}
-        {error && <div role="alert" className="error-banner"><strong>请求未完成</strong><span>{error}</span></div>}
+        {error && <><div role="alert" className="error-banner"><strong>请求未完成</strong><span>{error}</span></div>{errorDiagnostics.length > 0 && <section className="generation-diagnostics panel"><div className="section-intro"><h2>问题定位与处理建议</h2><p>以下信息来自本次生成结果，用于定位具体场次、人物、剧情或结构字段；通常无需修改原小说。</p></div><IssueList issues={errorDiagnostics} /></section>}</>}
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 
         <section className="workspace panel">
