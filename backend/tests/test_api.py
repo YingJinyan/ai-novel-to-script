@@ -5,6 +5,7 @@ import copy
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
+from backend.providers import QiniuAIError
 from scripts.validate_example import load_example_source_texts
 
 
@@ -447,6 +448,32 @@ def test_generate_ai_validates_chapters_before_calling_provider(monkeypatch) -> 
 
     assert response.status_code == 422
     assert response.json()["code"] == "chapter_count_too_low"
+
+
+def test_generate_ai_returns_actionable_provider_diagnostics(monkeypatch) -> None:
+    def fail_with_diagnostics(*args, **kwargs):
+        raise QiniuAIError(
+            "qiniu_provider_output_invalid",
+            "七牛 AI 自动修复后仍未通过完整结构校验。",
+            diagnostics=[
+                {
+                    "code": "ai_character_reference_ambiguous",
+                    "severity": "error",
+                    "message": "场次 5 的人物称谓 Guide 存在歧义；关联剧情：穿过尸洞。",
+                    "related_ids": ["scene_005"],
+                }
+            ],
+        )
+
+    monkeypatch.setattr("backend.routes.generate_qiniu_screenplay", fail_with_diagnostics)
+    response = client.post(
+        "/api/v1/projects/generate-ai",
+        json={"novel_text": NOVEL, "title": "七牛润色"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["diagnostics"][0]["related_ids"] == ["scene_005"]
+    assert "Guide" in response.json()["diagnostics"][0]["message"]
 
 
 def test_generate_ai_returns_quality_gated_result(monkeypatch) -> None:

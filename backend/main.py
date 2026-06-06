@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
             ),
             related_ids=[],
         )
-        return JSONResponse(status_code=422, content=error.model_dump())
+        return JSONResponse(status_code=422, content=error.response_content())
 
     application.include_router(router, prefix="/api/v1")
     return application

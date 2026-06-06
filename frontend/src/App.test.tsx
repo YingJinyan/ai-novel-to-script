@@ -180,6 +180,32 @@ describe("workbench", () => {
     expect(screen.getByText("证据与原文不匹配。")).toBeInTheDocument();
   });
 
+  it("shows actionable generation diagnostics with scene and plot context", async () => {
+    mockApi([
+      new Response(JSON.stringify(parsePayload), { status: 200 }),
+      new Response(JSON.stringify({
+        code: "qiniu_provider_output_invalid",
+        message: "七牛 AI 自动修复后仍未通过完整结构校验。",
+        related_ids: [],
+        diagnostics: [{
+          code: "ai_character_reference_ambiguous",
+          severity: "error",
+          message: "场次 5 的人物称谓 Guide 存在歧义；关联剧情：穿过尸洞。",
+          related_ids: ["scene_005"],
+        }],
+      }), { status: 502 }),
+    ]);
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
+
+    await screen.findByText("问题定位与处理建议");
+    expect(screen.getByText(/场次 5 的人物称谓 Guide/)).toBeInTheDocument();
+    expect(screen.getByText(/通常无需修改原小说/)).toBeInTheDocument();
+  });
+
   it("removes an old screenplay before a failed regeneration", async () => {
     mockApi([
       new Response(JSON.stringify(parsePayload), { status: 200 }),

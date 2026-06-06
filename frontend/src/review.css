@@ -21,6 +21,15 @@
   padding-bottom: 8px;
 }
 
+.generation-diagnostics {
+  margin-top: 10px;
+  padding: 14px 18px 18px;
+}
+
+.generation-diagnostics .section-intro {
+  margin-bottom: 10px;
+}
+
 .generation-progress {
   background: #fff7e7;
   border: 1px solid #e8ca91;
