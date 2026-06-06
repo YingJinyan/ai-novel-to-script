@@ -55,7 +55,16 @@ export interface Scene {
 
 export interface ScreenplayDocument {
   schema_version: string;
-  project: { title: string; logline: string };
+  project: {
+    title: string;
+    logline: string;
+    generation?: {
+      provider: string;
+      model: string;
+      mode: string;
+      fallback_reason?: string;
+    };
+  };
   source: { chapter_count: number; total_characters: number; chapters: SourceChapter[] };
   story_bible: {
     locations: Array<{ id: string; name: string }>;

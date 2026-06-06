@@ -152,6 +152,7 @@ export default function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
   const yamlRevision = useRef(0);
+  const generationModeChosen = useRef(false);
 
   const scenes = result?.screenplay.screenplay.scenes ?? [];
   const yamlText = useMemo(() => result ? yaml.dump(result.screenplay, { noRefs: true, lineWidth: 100 }) : "", [result]);
@@ -184,6 +185,9 @@ export default function App() {
           ?? response.models[0]
           ?? "";
       setSelectedQiniuModel(preferred);
+      if (preferred && !generationModeChosen.current) {
+        setGenerationMode("qiniu");
+      }
       setProviderMessage(`已从七牛读取 ${response.models.length} 个可用模型。`);
     } catch (err) {
       setQiniuModels([]);
@@ -211,7 +215,7 @@ export default function App() {
     if (!title.trim()) return setError("请填写项目名称。");
     if (!parsed?.eligible) return setError("当前解析结果未达到生成条件，请先处理阻断问题。");
     if (generationMode === "qiniu" && !selectedQiniuModel) {
-      return setError("七牛 AI 尚无可用模型，请刷新模型列表或使用离线规则模式。");
+      return setError("七牛 AI 尚无可用模型，请刷新模型列表或使用可靠兜底模式。");
     }
     setLoading("generate"); setError(""); setBlockedQuality(null); setResult(null);
     const requestedRevision = sourceRevision.current;
@@ -249,6 +253,7 @@ export default function App() {
   }
 
   function selectGenerationMode(mode: GenerationMode) {
+    generationModeChosen.current = true;
     setGenerationMode(mode);
     setResult(null);
     setBlockedQuality(null);
@@ -332,18 +337,25 @@ export default function App() {
     return { chapter, event, linkedScenes };
   }) ?? [];
   const qiniuModelGroups = groupedModels(qiniuModels);
+  const resultGeneration = result?.screenplay.project.generation;
+  const resultModeLabel = resultGeneration?.mode === "qiniu_ai"
+    ? `七牛 AI 完整改编 · ${resultGeneration.model}`
+    : "可靠兜底骨架";
+  const resultCounts = result
+    ? `${result.screenplay.story_bible.characters.length} 人物 · ${result.screenplay.story_bible.locations.length} 地点 · ${result.screenplay.narrative_events.length} 事件 · ${scenes.length} 场次`
+    : "";
 
   return (
     <div className="app-shell">
       <header>
         <div className="brand"><span className="brand-mark">溯</span><div><strong>溯源剧本工作台</strong><small>可信 · 可控 · 可追溯</small></div></div>
-        <div className="mode"><i />{generationMode === "qiniu" ? `七牛 AI · ${selectedQiniuModel}` : "离线规则模式（不调用 AI）"}</div>
+        <div className="mode"><i />证据链与质量门禁已启用</div>
       </header>
 
       <main>
         <section className="intro">
-          <div><p className="eyebrow">NOVEL → SCREENPLAY</p><h1>让每一个场次，都有出处。</h1><p>导入至少 3 章小说，先检查输入，再生成可验证、可下载的结构化剧本。</p></div>
-          <div className="steps"><span className={parsed ? "done" : "active"}>01 输入检查</span><span className={result ? "done" : parsed?.eligible ? "active" : ""}>02 本地生成</span><span className={result ? "active" : ""}>03 溯源审阅</span></div>
+          <div><p className="eyebrow">NOVEL → SCREENPLAY</p><h1>让 AI 改编的每一个场次，都有出处。</h1><p>导入至少 3 章小说，自动提取人物、地点与事件，生成可验证、可编辑的结构化剧本。</p></div>
+          <div className="steps"><span className={parsed ? "done" : "active"}>01 输入检查</span><span className={result ? "done" : parsed?.eligible ? "active" : ""}>02 AI 剧本化</span><span className={result ? "active" : ""}>03 溯源审阅</span></div>
         </section>
 
         <section className="import-grid">
@@ -360,9 +372,9 @@ export default function App() {
               <div className="stats"><div><strong>{parsed.chapters.length}</strong><span>识别章节</span></div><div><strong>{parsed.total_characters.toLocaleString()}</strong><span>总字符</span></div><div><strong>{parsed.issues.length}</strong><span>问题</span></div></div>
               <div className="chapter-strip">{parsed.chapters.map((chapter) => <div key={chapter.id}><span>{String(chapter.order).padStart(2, "0")}</span><strong>{chapter.title}</strong><small>{chapter.text.length} 字符</small></div>)}</div>
               <IssueList issues={parsed.issues} />
-              <div className="provider-picker"><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>离线规则</strong><span>不调用 AI，稳定生成可追溯骨架</span></button><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !selectedQiniuModel} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI</strong><span>{selectedQiniuModel ? `${selectedQiniuModel} · 受限润色` : "未读取到可用模型"}</span></button></div>
+              <div className="provider-picker"><button className={generationMode === "qiniu" ? "selected" : ""} disabled={!!loading || !selectedQiniuModel} onClick={() => selectGenerationMode("qiniu")}><strong>七牛 AI · 完整剧本化</strong><span>{selectedQiniuModel ? `${selectedQiniuModel} · 人物、地点、事件、场次与对白` : "未读取到可用模型"}</span></button><button className={generationMode === "local" ? "selected" : ""} disabled={!!loading} onClick={() => selectGenerationMode("local")}><strong>可靠兜底</strong><span>不调用 AI，只生成可追溯骨架且不冒充 AI</span></button></div>
               <div className="model-picker"><label>七牛模型<select disabled={!!loading || providerLoading || !qiniuModels.length} value={selectedQiniuModel} onChange={(event) => { setSelectedQiniuModel(event.target.value); if (generationMode === "qiniu") setResult(null); }}>{qiniuModels.length ? <><optgroup label="推荐用于小说改编">{qiniuModelGroups.recommended.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="通用文本模型">{qiniuModelGroups.general.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="推理模型（可能较慢）">{qiniuModelGroups.thinking.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup><optgroup label="视觉模型（当前任务不推荐）">{qiniuModelGroups.vision.map((model) => <option value={model} key={model}>{model}</option>)}</optgroup></> : <option value="">暂无可用模型</option>}</select></label><button className="text-button" disabled={providerLoading || !!loading} onClick={() => void refreshQiniuProvider()}>{providerLoading ? "读取中…" : "刷新七牛模型"}</button><span>{providerMessage} {selectedQiniuModel && modelGuidance(selectedQiniuModel)}</span></div>
-              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : generationMode === "qiniu" ? "使用七牛 AI 润色" : "生成结构化剧本"}</button></div>
+              <div className="generate-box"><label>项目名称<input disabled={!!loading} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：雨夜来信" /></label><button className="primary generate" disabled={!parsed.eligible || !!loading} onClick={handleGenerate}>{loading === "generate" ? "正在生成…" : generationMode === "qiniu" ? "使用七牛 AI 生成完整剧本" : "使用可靠兜底生成骨架"}</button></div>
             </>}
           </div>
         </section>
@@ -371,7 +383,7 @@ export default function App() {
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 
         <section className="workspace panel">
-          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p></div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></div>}</div>
+          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></div>}</div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
             <nav className="tabs" aria-label="结果视图">
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>场次与证据 <b>{scenes.length}</b></button>
