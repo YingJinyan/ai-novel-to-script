@@ -148,6 +148,7 @@ describe("workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "原始 YAML" }));
     expect((screen.getByLabelText("可编辑剧本 YAML") as HTMLTextAreaElement).value)
       .toContain("schema_version: 1.0.0");
+    expect(screen.getByText(/project\.generation.*仅用于项目级记录生成来源和模型/)).toBeInTheDocument();
   });
 
   it("shows quality gate diagnostics returned by the backend", async () => {
