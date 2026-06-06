@@ -35,6 +35,14 @@ git log --oneline --all
 
 部署或录制七牛 AI 功能前申请合法 API Key 和可用模型，只在本机环境变量中设置。不要把 Key 发到聊天、视频、README、Issue、PR 或 Git。
 
+在设置新密钥的同一个 PowerShell 窗口运行：
+
+```powershell
+.\scripts\verify-qiniu.ps1 -Model deepseek-v3
+```
+
+只有输出 `PASSED: real Qiniu AI generation completed.` 后，才在 Demo 中声明真实线上调用已经验证。失败时保留错误信息并更换可用文本模型重试，不要用离线结果冒充 AI 成功。
+
 如果未完成真实线上验证，Demo 只展示离线规则模式，并诚实说明七牛接口已实现但待密钥验证。
 
 ### 2. 录制 Demo 视频

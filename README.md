@@ -102,6 +102,14 @@ py -3.10 -m uvicorn backend.main:app --reload
 
 页面会通过后端安全读取七牛 `/v1/models` 返回的可用模型，用户可直接选择。系统优先推荐适合结构化文本改编的模型，并标记可能较慢的推理模型与当前任务不推荐的视觉模型。也可选填 `QINIU_AI_MODEL` 作为默认模型。不要把真实值写入 `.env.example`，不要提交 `.env`。完整可信边界见 [七牛 AI 接入文档](docs/ai-provider.md)。
 
+在设置密钥的同一个 PowerShell 窗口中执行一次真实验收：
+
+```powershell
+.\scripts\verify-qiniu.ps1 -Model deepseek-v3
+```
+
+该脚本会真实调用一次七牛 AI，并检查模型来源、场次数、质量门禁和作者复核警告；只输出非敏感摘要，不输出密钥或 AI 生成正文。若模型不遵守受限输出契约，脚本会如实失败，不会以离线结果冒充 AI 成功。
+
 ## 质量检查
 
 运行全部检查：
@@ -165,6 +173,10 @@ Schema 将项目元数据、改编约束、来源章节、故事设定、叙事�
 - [PR #5：解析与生成 API](https://github.com/YingJinyan/ai-novel-to-script/pull/5)
 - [PR #6：可追溯剧本审阅工作台](https://github.com/YingJinyan/ai-novel-to-script/pull/6)
 - [PR #7：质量门禁保护的七牛 AI 接入](https://github.com/YingJinyan/ai-novel-to-script/pull/7)
+- [PR #8：可复现演示与提交材料](https://github.com/YingJinyan/ai-novel-to-script/pull/8)
+- [PR #9：七牛可用模型发现与选择](https://github.com/YingJinyan/ai-novel-to-script/pull/9)
+- [PR #10：剧本 YAML 编辑与重新校验](https://github.com/YingJinyan/ai-novel-to-script/pull/10)
+- [PR #11：七牛模型选择引导](https://github.com/YingJinyan/ai-novel-to-script/pull/11)
 
 ## 原创功能
 
