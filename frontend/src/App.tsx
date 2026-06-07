@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
 import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel, validateScreenplay } from "./api";
 import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
+import { buildValidationBundle } from "./validationBundle";
 
 type ResultTab = "script" | "bible" | "coverage" | "quality" | "yaml";
 type GenerationMode = "local" | "qiniu";
@@ -364,11 +365,7 @@ export default function App() {
 
   function downloadValidationBundle() {
     if (!result) return;
-    const content = JSON.stringify(
-      { screenplay: result.screenplay, source_texts: result.source_texts },
-      null,
-      2,
-    );
+    const content = JSON.stringify(buildValidationBundle(result), null, 2);
     const url = URL.createObjectURL(new Blob([content], { type: "application/json;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url; link.download = `${title.trim() || "screenplay"}.validation.json`; link.click();
