@@ -230,6 +230,9 @@ def test_full_ai_adaptation_registers_scene_only_location_for_author_review() ->
 
     assert client.calls == 1
     assert result.screenplay["story_bible"]["locations"][-1]["name"] == "车站月台"
+    assert result.screenplay["story_bible"]["locations"][-1]["description"] == (
+        "根据场次内容补充的地点，具体设定需由作者复核。"
+    )
     assert result.screenplay["screenplay"]["scenes"][2]["heading"]["location_id"] == "location_003"
     assert "ai_location_review_required" in {issue["code"] for issue in result.issues}
     assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
