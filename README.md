@@ -11,6 +11,8 @@
 
 仓库地址：<https://github.com/YingJinyan/ai-novel-to-script>
 
+面向评委的完整说明：[项目介绍、竞争力与创新点](docs/project-innovation.md)。
+
 ## 核心差异
 
 普通小说转剧本工具重点是“生成”。本项目进一步回答三个问题：
