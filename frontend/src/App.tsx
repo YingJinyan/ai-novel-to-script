@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
-import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, parseNovel, validateScreenplay } from "./api";
+import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, getScreenplaySchema, parseNovel, validateScreenplay } from "./api";
 import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
 import { buildValidationBundle } from "./validationBundle";
 
@@ -313,6 +313,19 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function downloadSchema() {
+    try {
+      const schema = await getScreenplaySchema();
+      const content = JSON.stringify(schema, null, 2);
+      const url = URL.createObjectURL(new Blob([content], { type: "application/schema+json;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = "screenplay.schema.json"; link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "无法下载 YAML Schema。");
+    }
+  }
+
   async function validateYamlDraft() {
     if (!result) return;
     const requestedRevision = yamlRevision.current;
@@ -435,7 +448,7 @@ export default function App() {
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 
         <section className="workspace panel">
-          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div>{result && <div className="download-actions"><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></div>}</div>
+          <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div><div className="download-actions"><button className="download secondary" onClick={() => void downloadSchema()}>下载 YAML Schema</button>{result && <><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></>}</div></div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
             <div className="result-guide"><div><strong>场次与证据</strong><span>阅读剧本，并查看每场依据的原文摘录。</span></div><div><strong>故事要素</strong><span>检查 AI 识别的人物、目标和地点是否准确。</span></div><div><strong>事件覆盖</strong><span>确认三章关键情节没有在改编中遗漏。</span></div><div><strong>交付检查</strong><span>确认 YAML、证据链和覆盖率达到下载条件。</span></div></div>
             <nav className="tabs" aria-label="结果视图">
@@ -458,7 +471,7 @@ export default function App() {
             {tab === "quality" && activeQualityReport && <div className="quality-view"><div className={`gate ${activeQualityReport.passed ? "pass" : "block"}`}><span>{activeQualityReport.passed ? "✓" : "!"}</span><div><strong>{activeQualityReport.passed ? "交付检查通过" : "交付检查阻断"}</strong><p>检查 YAML 格式、真实来源证据、章节与事件覆盖；通过不代表 AI 文案无需作者复核。</p></div></div><div className="metric-grid">{Object.entries(activeQualityReport.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><h3>交付问题</h3><IssueList issues={activeQualityReport.issues} /><h3>作者复核提示</h3><IssueList issues={result.issues} /></div>}
             {tab === "quality" && !activeQualityReport && <div className="quality-view"><div className="gate pending"><span>?</span><div><strong>质量门禁待校验</strong><p>当前 YAML 已修改，请重新校验后再判断是否可以交付。</p></div></div></div>}
 
-            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。`project.generation` 仅用于项目级记录生成来源和模型，便于评委复现；场次正文不会重复宣传供应商。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { yamlRevision.current += 1; setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过版本</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}
+            {tab === "yaml" && <div className="yaml-view"><div className="section-intro"><h2>可编辑 YAML</h2><p>修改后提交后端重新执行 Schema、证据链与覆盖质量门禁。<a href="https://github.com/YingJinyan/ai-novel-to-script/blob/main/docs/yaml-schema.md" target="_blank" rel="noreferrer">查看 YAML Schema 设计说明</a>；`project.generation` 仅用于项目级记录生成来源和模型，便于评委复现。</p></div><textarea aria-label="可编辑剧本 YAML" value={yamlDraft} onChange={(event) => { yamlRevision.current += 1; setYamlDraft(event.target.value); setYamlReport(null); setYamlDirty(true); setYamlMessage("当前修改尚未重新校验。"); }} /><div className="yaml-actions"><button className="primary" disabled={yamlValidating} onClick={() => void validateYamlDraft()}>{yamlValidating ? "校验中…" : "重新校验 YAML"}</button><button className="download secondary" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过版本</button><span className={yamlReport?.passed ? "yaml-pass" : "yaml-pending"}>{yamlMessage || "当前 YAML 来自生成结果，尚未手动修改。"}</span></div>{yamlReport && <IssueList issues={yamlReport.issues} />}</div>}
           </>}
         </section>
       </main>

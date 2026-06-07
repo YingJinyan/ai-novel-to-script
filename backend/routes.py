@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import yaml
@@ -26,7 +27,7 @@ from backend.models import (
 )
 from backend.pipeline import analyze_chapters, generate_local_screenplay, generate_qiniu_screenplay
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
-from scripts.validate_example import EXAMPLE_PATH, validate_screenplay
+from scripts.validate_example import EXAMPLE_PATH, SCHEMA_PATH, validate_screenplay
 
 
 router = APIRouter()
@@ -52,6 +53,19 @@ def get_example() -> dict[str, Any]:
     if not isinstance(example, dict):
         raise HTTPException(status_code=500, detail="Example screenplay must be a YAML object.")
     return example
+
+
+@router.get("/schema", response_model=dict[str, Any])
+def get_schema() -> dict[str, Any]:
+    """Return the machine-executable screenplay JSON Schema."""
+    try:
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail="Failed to load screenplay schema.") from exc
+
+    if not isinstance(schema, dict):
+        raise HTTPException(status_code=500, detail="Screenplay schema must be a JSON object.")
+    return schema
 
 
 @router.get("/providers/qiniu/status", response_model=ProviderStatusResponse)

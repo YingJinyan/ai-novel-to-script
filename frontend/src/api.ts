@@ -52,6 +52,9 @@ export const getQiniuStatus = () =>
 export const getQiniuModels = () =>
   get<ProviderModels>("/api/v1/providers/qiniu/models");
 
+export const getScreenplaySchema = () =>
+  get<Record<string, unknown>>("/api/v1/schema");
+
 export const parseNovel = (novelText: string) =>
   post<ParseResponse>("/api/v1/projects/parse", { novel_text: novelText });
 

@@ -48,6 +48,14 @@ def test_example_returns_parsed_yaml_object() -> None:
     assert len(response.json()["source"]["chapters"]) >= 3
 
 
+def test_schema_returns_machine_executable_definition() -> None:
+    response = client.get("/api/v1/schema")
+
+    assert response.status_code == 200
+    assert response.json()["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert response.json()["properties"]["screenplay"]["$ref"] == "#/$defs/screenplay"
+
+
 def test_validate_accepts_valid_example_with_source_texts() -> None:
     response = client.post(
         "/api/v1/validate",
