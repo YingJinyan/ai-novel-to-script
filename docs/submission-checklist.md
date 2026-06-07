@@ -31,6 +31,8 @@ git log --oneline --all
 
 ## 需要项目所有者完成
 
+评委或新用户复现项目时，可使用 [本地部署与七牛 AI 配置教程](local-deployment-guide.md)。
+
 ### 1. 七牛线上验证
 
 部署或录制七牛 AI 功能前申请合法 API Key 和可用模型，只在本机环境变量中设置。不要把 Key 发到聊天、视频、README、Issue、PR 或 Git。
