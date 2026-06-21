@@ -156,6 +156,39 @@ def test_qiniu_client_requires_explicit_key_and_model() -> None:
     assert "super-secret" not in repr(error.value)
 
 
+def test_qiniu_client_rejects_non_ascii_api_key_before_httpx_header_build() -> None:
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={"data": []})
+
+    client = QiniuClient(
+        QiniuSettings(api_key="七牛密钥", model="chosen-model"),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(QiniuAIError) as error:
+        client.list_models()
+
+    assert called is False
+    assert error.value.code == "qiniu_provider_invalid_api_key"
+    assert "sk-" in str(error.value)
+
+
+def test_qiniu_client_rejects_api_key_with_whitespace_before_httpx_header_build() -> None:
+    client = QiniuClient(
+        QiniuSettings(api_key="sk-bad key", model="chosen-model"),
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200))),
+    )
+
+    with pytest.raises(QiniuAIError) as error:
+        client.complete_json([{"role": "user", "content": "test"}])
+
+    assert error.value.code == "qiniu_provider_invalid_api_key"
+
+
 def test_full_ai_adaptation_extracts_structure_and_passes_quality_gate() -> None:
     result = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=FakeQiniuClient())
 

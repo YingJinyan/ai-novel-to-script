@@ -7,11 +7,11 @@ if (-not (Test-Path -LiteralPath $configPath)) {
 }
 
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if (-not $env:QINIU_AI_API_KEY -and $config.encrypted_api_key) {
+if ($config.encrypted_api_key) {
     $secureKey = ConvertTo-SecureString $config.encrypted_api_key
     $credential = [System.Net.NetworkCredential]::new("", $secureKey)
-    $env:QINIU_AI_API_KEY = $credential.Password
+    $env:QINIU_AI_API_KEY = $credential.Password.Trim()
 }
-if (-not $env:QINIU_AI_MODEL -and $config.model) {
-    $env:QINIU_AI_MODEL = [string]$config.model
+if ($config.model) {
+    $env:QINIU_AI_MODEL = ([string]$config.model).Trim()
 }

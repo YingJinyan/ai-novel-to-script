@@ -80,6 +80,23 @@ class QiniuClient:
         self.settings = settings or QiniuSettings.from_env()
         self._http_client = http_client
 
+    def _authorization_headers(self) -> dict[str, str]:
+        api_key = self.settings.api_key.strip()
+        if not api_key:
+            raise QiniuAIError(
+                "qiniu_provider_not_configured",
+                "七牛 AI 未配置。请设置 QINIU_AI_API_KEY。",
+            )
+        if any(character.isspace() for character in api_key) or any(
+            ord(character) < 32 or ord(character) > 126 for character in api_key
+        ):
+            raise QiniuAIError(
+                "qiniu_provider_invalid_api_key",
+                "七牛 AI API Key 包含中文、空格或不可见字符。请重新运行 "
+                ".\\scripts\\configure-qiniu.ps1 -Model deepseek-v3，且只粘贴 sk- 开头的密钥本身。",
+            )
+        return {"Authorization": f"Bearer {api_key}"}
+
     def complete_json(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         if not self.settings.configured:
             raise QiniuAIError(
@@ -105,7 +122,7 @@ class QiniuClient:
                     ]
                 response = client.post(
                     f"{self.settings.base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.api_key}"},
+                    headers=self._authorization_headers(),
                     json={
                         "model": self.settings.model,
                         "messages": retry_messages,
@@ -192,7 +209,7 @@ class QiniuClient:
         try:
             response = client.get(
                 f"{self.settings.base_url}/models",
-                headers={"Authorization": f"Bearer {self.settings.api_key}"},
+                headers=self._authorization_headers(),
             )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
