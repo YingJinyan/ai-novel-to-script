@@ -159,6 +159,30 @@ def test_complete_excerpt_boundary_allows_a_full_source_sentence() -> None:
     assert evidence_spans_complete_excerpt(source, 1, 8) is False
 
 
+def test_complete_excerpt_boundary_allows_indented_literary_paragraphs() -> None:
+    source = "他说：\n\n\u3000\u3000“阿Ｑ，你这浑小子！你说我是你的本家么？”\n\n\u3000\u3000阿Ｑ不开口。"
+    start = source.index("“阿Ｑ")
+    end = len(source)
+
+    assert evidence_spans_complete_excerpt(source, start, end) is True
+
+
+def test_complete_excerpt_boundary_allows_closing_chinese_quote() -> None:
+    source = "他说：“你怎么会姓赵！”\n\n\u3000\u3000阿Ｑ并没有抗辩。"
+    start = source.index("“你")
+    end = source.index("\n\n")
+
+    assert evidence_spans_complete_excerpt(source, start, end) is True
+
+
+def test_complete_excerpt_boundary_still_rejects_mid_sentence_slices() -> None:
+    source = "他说：\n\n\u3000\u3000“阿Ｑ，你这浑小子！你说我是你的本家么？”"
+    start = source.index("浑小子")
+    end = source.index("本家么") + len("本家么")
+
+    assert evidence_spans_complete_excerpt(source, start, end) is False
+
+
 def test_rejects_source_text_when_content_hash_changes(screenplay: dict) -> None:
     source_texts = load_example_source_texts()
     source_texts["chapter_1"] += "被篡改"

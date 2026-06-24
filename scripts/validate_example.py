@@ -184,21 +184,30 @@ def validate_source_evidence(screenplay: dict, source_texts: dict[str, str]) -> 
 
 def evidence_spans_complete_excerpt(source_text: str, start: int, end: int) -> bool:
     """Reject arbitrary sub-slices while allowing full sentences and capped paragraphs."""
-    sentence_endings = "。！？!?"
+    sentence_endings = "。！？!?…"
+    start_boundary_marks = f"{sentence_endings}：:"
+    closing_punctuation = "”」』’）)]》〉"
+    horizontal_spaces = " \t\u3000"
     prefix = source_text[:start]
     suffix = source_text[end:]
     previous_nonspace = prefix.rstrip()
     following_nonspace = suffix.lstrip()
-    starts_after_line_break = prefix.rstrip(" \t").endswith(("\n", "\r"))
-    ends_before_line_break = suffix.lstrip(" \t").startswith(("\n", "\r"))
+    starts_after_line_break = prefix.rstrip(horizontal_spaces).endswith(("\n", "\r"))
+    ends_before_line_break = suffix.lstrip(horizontal_spaces).startswith(("\n", "\r"))
+    excerpt = source_text[start:end].rstrip()
+    excerpt_without_closing = excerpt.rstrip(closing_punctuation)
     starts_at_boundary = (
         not previous_nonspace
-        or previous_nonspace[-1] in sentence_endings
+        or previous_nonspace[-1] in start_boundary_marks
         or starts_after_line_break
     )
     ends_at_boundary = (
         not following_nonspace
-        or source_text[end - 1] in sentence_endings
+        or (bool(excerpt) and excerpt[-1] in sentence_endings)
+        or (
+            bool(excerpt_without_closing)
+            and excerpt_without_closing[-1] in sentence_endings
+        )
         or ends_before_line_break
         or end - start == 200
     )
