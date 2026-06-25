@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator
+
+from backend.pipeline.dialogue import (
+    extract_source_dialogues,
+    normalize_dialogue_text,
+    retained_source_dialogue_ids,
+    screenplay_dialogue_texts,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -279,8 +287,54 @@ def validate_scene_grounding(screenplay: dict) -> list[str]:
     ]
 
 
+def _event_keywords(event: dict) -> set[str]:
+    text = f"{event.get('summary', '')} {event.get('evidence', {}).get('quote', '')}"
+    chinese = re.sub(r"[^\u4e00-\u9fff]+", "", text)
+    stopwords = {
+        "一个",
+        "这个",
+        "那个",
+        "他们",
+        "我们",
+        "你们",
+        "进行",
+        "通过",
+        "来源",
+        "事件",
+        "场次",
+        "原文",
+        "改编",
+        "根据",
+        "完成",
+    }
+    return {
+        chinese[index:index + 2]
+        for index in range(max(0, len(chinese) - 1))
+        if chinese[index:index + 2] not in stopwords
+    }
+
+
+def _event_is_dramatized(event: dict, linked_scenes: list[dict]) -> bool:
+    if not linked_scenes:
+        return False
+    keywords = _event_keywords(event)
+    if not keywords:
+        return True
+    scene_text = normalize_dialogue_text(
+        " ".join(
+            beat.get("text", "")
+            for scene in linked_scenes
+            for beat in scene.get("beats", [])
+        )
+    )
+    hits = sum(1 for keyword in keywords if keyword in scene_text)
+    required_hits = 1 if len(keywords) <= 2 else 2
+    return hits >= required_hits
+
+
 def build_quality_report(
     screenplay: dict,
+    source_texts: dict[str, str] | None = None,
     schema_errors: list[str] | None = None,
     reference_errors: list[str] | None = None,
     evidence_errors: list[str] | None = None,
@@ -289,6 +343,7 @@ def build_quality_report(
     schema_errors = schema_errors or []
     reference_errors = reference_errors or []
     evidence_errors = evidence_errors or []
+    source_texts = source_texts or {}
     chapters = screenplay["source"]["chapters"]
     events = screenplay["narrative_events"]
     scenes = screenplay["screenplay"]["scenes"]
@@ -307,12 +362,31 @@ def build_quality_report(
     invented_scenes = [
         scene for scene in scenes if scene["traceability"]["origin"] == "invented"
     ]
+    source_dialogues = extract_source_dialogues(source_texts)
+    retained_dialogue_ids = retained_source_dialogue_ids(source_dialogues, screenplay)
+    missing_dialogue_ids = {
+        dialogue["dialogue_id"] for dialogue in source_dialogues
+    } - retained_dialogue_ids
+    generation_mode = screenplay.get("project", {}).get("generation", {}).get("mode")
 
     def ratio(covered: set, total: set) -> float:
         return round(len(covered & total) / len(total), 3) if total else 1.0
 
     all_event_ids = {event["id"] for event in events}
     all_chapter_ids = {chapter["id"] for chapter in chapters}
+    scenes_by_event_id = {
+        event["id"]: [
+            scene
+            for scene in scenes
+            if event["id"] in scene["traceability"]["source_event_ids"]
+        ]
+        for event in events
+    }
+    dramatized_event_ids = {
+        event["id"]
+        for event in events
+        if _event_is_dramatized(event, scenes_by_event_id[event["id"]])
+    }
     issues = [
         {
             "code": "schema_validation_error",
@@ -358,6 +432,34 @@ def build_quality_report(
                 "related_ids": [event_id],
             }
         )
+    for event in events:
+        if event["id"] in covered_event_ids and event["id"] not in dramatized_event_ids:
+            linked_scene_ids = [
+                scene["id"] for scene in scenes_by_event_id.get(event["id"], [])
+            ]
+            issues.append(
+                {
+                    "code": "event_dramatization_review_required",
+                    "severity": "warning",
+                    "message": (
+                        f"事件 {event['id']} 已关联场次，但动作/对白未明显呈现该事件："
+                        f"{event['summary']}。请检查是否只是填写了事件 ID。"
+                    ),
+                    "related_ids": [event["id"], *linked_scene_ids],
+                }
+            )
+    if generation_mode == "qiniu_ai" and source_dialogues and missing_dialogue_ids:
+        issues.append(
+            {
+                "code": "source_dialogue_retention_incomplete",
+                "severity": "warning",
+                "message": (
+                    f"原文对白保留率为 {len(retained_dialogue_ids)}/{len(source_dialogues)}，"
+                    "部分对白未在剧本 dialogue 节拍中出现。"
+                ),
+                "related_ids": sorted(missing_dialogue_ids)[:30],
+            }
+        )
     adaptation_control = screenplay["adaptation_control"]
     target_scene_count = adaptation_control["target_scene_count"]
     scene_count_range = adaptation_control.get("scene_count_range")
@@ -401,8 +503,16 @@ def build_quality_report(
         "metrics": {
             "chapter_coverage": ratio(covered_chapter_ids, all_chapter_ids),
             "event_coverage": ratio(covered_event_ids, all_event_ids),
+            "event_dramatization_coverage": ratio(dramatized_event_ids, all_event_ids),
             "critical_event_coverage": ratio(covered_event_ids, critical_event_ids),
             "must_keep_coverage": ratio(covered_event_ids, must_keep_ids),
+            "dialogue_retention": (
+                round(len(retained_dialogue_ids) / len(source_dialogues), 3)
+                if source_dialogues
+                else 1.0
+            ),
+            "source_dialogue_count": len(source_dialogues),
+            "screenplay_dialogue_count": len(screenplay_dialogue_texts(screenplay)),
             "source_traceability_coverage": (
                 round(traced_scene_count / scene_count, 3) if scene_count else 0.0
             ),
@@ -451,6 +561,7 @@ def validate_screenplay(screenplay: object, source_texts: dict[str, str]) -> dic
     ]
     return build_quality_report(
         screenplay,
+        source_texts=source_texts,
         reference_errors=reference_errors,
         evidence_errors=evidence_errors,
     )

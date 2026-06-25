@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 
 from backend.models import (
     AIGenerationRequest,
+    AIRefinementRequest,
+    AIRefinementResponse,
     ChapterParseResponse,
     ErrorResponse,
     HealthResponse,
@@ -25,7 +27,12 @@ from backend.models import (
     ValidationReport,
     ValidationRequest,
 )
-from backend.pipeline import analyze_chapters, generate_local_screenplay, generate_qiniu_screenplay
+from backend.pipeline import (
+    analyze_chapters,
+    generate_local_screenplay,
+    generate_qiniu_screenplay,
+    refine_qiniu_screenplay,
+)
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import EXAMPLE_PATH, SCHEMA_PATH, validate_screenplay
 
@@ -247,4 +254,58 @@ def generate_project_ai(
         source_texts=result.source_texts,
         issues=[ValidationIssue.model_validate(issue) for issue in result.issues],
         quality_report=quality_report,
+    )
+
+
+@router.post(
+    "/projects/refine-ai",
+    response_model=AIRefinementResponse,
+    responses={
+        422: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+        500: {"model": QualityGateErrorResponse},
+    },
+)
+def refine_project_ai(
+    request: AIRefinementRequest,
+) -> AIRefinementResponse | JSONResponse:
+    """Revise an existing screenplay with Qiniu AI according to author feedback."""
+    try:
+        result, refinement_notes = refine_qiniu_screenplay(
+            request.screenplay,
+            request.source_texts,
+            request.feedback,
+            model=request.model,
+            scene_density=request.scene_density,
+        )
+    except QiniuAIError as exc:
+        status_code = 503 if exc.code == "qiniu_provider_not_configured" else 502
+        if exc.code == "ai_source_text_too_long":
+            status_code = 422
+        error = ErrorResponse(
+            code=exc.code,
+            message=str(exc),
+            related_ids=[],
+            diagnostics=[ValidationIssue.model_validate(issue) for issue in exc.diagnostics],
+        )
+        return JSONResponse(status_code=status_code, content=error.response_content())
+
+    quality_report = ValidationReport.model_validate(
+        validate_screenplay(result.screenplay, result.source_texts)
+    )
+    if not quality_report.passed:
+        error = QualityGateErrorResponse(
+            code="ai_refined_screenplay_failed_quality_gate",
+            message="七牛 AI 反馈改写结果未通过质量门禁。",
+            related_ids=[],
+            quality_report=quality_report,
+        )
+        return JSONResponse(status_code=500, content=error.response_content())
+    return AIRefinementResponse(
+        screenplay=result.screenplay,
+        source_texts=result.source_texts,
+        issues=[ValidationIssue.model_validate(issue) for issue in result.issues],
+        quality_report=quality_report,
+        refinement_notes=refinement_notes,
     )

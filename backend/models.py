@@ -83,6 +83,23 @@ class AIGenerationRequest(LocalGenerationRequest):
     scene_density: Literal["concise", "balanced", "detailed"] = "concise"
 
 
+class AIRefinementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    screenplay: dict[str, Any]
+    source_texts: dict[str, str] = Field(default_factory=dict)
+    feedback: str = Field(min_length=1, max_length=4_000)
+    model: str = Field(default="", max_length=200)
+    scene_density: Literal["concise", "balanced", "detailed"] = "balanced"
+
+    @field_validator("source_texts")
+    @classmethod
+    def enforce_source_text_limit(cls, source_texts: dict[str, str]) -> dict[str, str]:
+        if sum(len(text) for text in source_texts.values()) > MAX_SOURCE_CHARACTERS:
+            raise ValueError(f"source_texts exceeds {MAX_SOURCE_CHARACTERS} characters")
+        return source_texts
+
+
 class ParsedChapter(BaseModel):
     id: str
     order: int = Field(ge=1)
@@ -103,6 +120,10 @@ class LocalGenerationResponse(BaseModel):
     source_texts: dict[str, str]
     issues: list[ValidationIssue]
     quality_report: ValidationReport
+
+
+class AIRefinementResponse(LocalGenerationResponse):
+    refinement_notes: list[str]
 
 
 class ProviderStatusResponse(BaseModel):

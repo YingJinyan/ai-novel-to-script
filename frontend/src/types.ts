@@ -96,6 +96,10 @@ export interface GenerationResponse {
   quality_report: QualityReport;
 }
 
+export interface RefinementResponse extends GenerationResponse {
+  refinement_notes: string[];
+}
+
 export interface ProviderStatus {
   provider: string;
   credentials_configured: boolean;

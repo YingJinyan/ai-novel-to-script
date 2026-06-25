@@ -1,4 +1,4 @@
-import type { GenerationResponse, ParseResponse, ProviderModels, ProviderStatus } from "./types";
+import type { GenerationResponse, ParseResponse, ProviderModels, ProviderStatus, RefinementResponse } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
@@ -73,6 +73,21 @@ export const generateAI = (
   post<GenerationResponse>("/api/v1/projects/generate-ai", {
     novel_text: novelText,
     title,
+    model,
+    scene_density: sceneDensity,
+  });
+
+export const refineAI = (
+  screenplay: unknown,
+  sourceTexts: Record<string, string>,
+  feedback: string,
+  model: string,
+  sceneDensity: "concise" | "balanced" | "detailed",
+) =>
+  post<RefinementResponse>("/api/v1/projects/refine-ai", {
+    screenplay,
+    source_texts: sourceTexts,
+    feedback,
     model,
     scene_density: sceneDensity,
   });

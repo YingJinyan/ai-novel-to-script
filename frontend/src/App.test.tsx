@@ -62,6 +62,24 @@ const generationPayload = {
   quality_report: { passed: true, metrics: { chapter_coverage: 1, target_scene_delta: 0 }, issues: [] },
 };
 
+const aiGenerationPayload = JSON.parse(JSON.stringify(generationPayload));
+aiGenerationPayload.screenplay.project.generation = {
+  provider: "qiniu-ai",
+  model: "deepseek-v3",
+  mode: "qiniu_ai",
+  fallback_reason: "",
+};
+
+const refinedPayload = JSON.parse(JSON.stringify(aiGenerationPayload));
+refinedPayload.refinement_notes = ["已根据意见补回更多对白。"];
+refinedPayload.screenplay.screenplay.scenes[0].beats[0].text = "甲，并补回遗漏对白。";
+refinedPayload.quality_report.metrics = {
+  chapter_coverage: 1,
+  event_dramatization_coverage: 1,
+  dialogue_retention: 1,
+  target_scene_delta: 0,
+};
+
 const qiniuStatus = {
   provider: "qiniu-ai",
   credentials_configured: false,
@@ -289,6 +307,39 @@ describe("workbench", () => {
     expect(JSON.parse(String(aiRequest?.[1]?.body))).toMatchObject({
       model: "configured-model",
       scene_density: "detailed",
+    });
+  });
+
+  it("sends author feedback to Qiniu and replaces the screenplay", async () => {
+    const fetchMock = mockApi(
+      [
+        new Response(JSON.stringify(parsePayload), { status: 200 }),
+        new Response(JSON.stringify(aiGenerationPayload), { status: 200 }),
+        new Response(JSON.stringify(refinedPayload), { status: 200 }),
+      ],
+      { ...qiniuStatus, credentials_configured: true, configured: true, model: "deepseek-v3" },
+      ["deepseek-v3"],
+    );
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "解析并检查" }));
+    await screen.findByText("可以生成");
+    fireEvent.click(screen.getByRole("button", { name: "使用七牛 AI 生成完整剧本" }));
+    await screen.findByText("来源证据");
+    fireEvent.change(screen.getByLabelText("作者修改意见"), {
+      target: { value: "请补回更多对白" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送给七牛 AI 改写" }));
+
+    await screen.findByText("已根据意见补回更多对白。");
+    expect(screen.getByText("甲，并补回遗漏对白。")).toBeInTheDocument();
+    const refineRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/api/v1/projects/refine-ai")
+    );
+    expect(JSON.parse(String(refineRequest?.[1]?.body))).toMatchObject({
+      feedback: "请补回更多对白",
+      model: "deepseek-v3",
+      scene_density: "balanced",
     });
   });
 

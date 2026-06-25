@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import yaml from "js-yaml";
-import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, getScreenplaySchema, parseNovel, validateScreenplay } from "./api";
+import { ApiError, generateAI, generateLocal, getQiniuModels, getQiniuStatus, getScreenplaySchema, parseNovel, refineAI, validateScreenplay } from "./api";
 import type { GenerationResponse, Issue, ParseResponse, QualityReport, Scene } from "./types";
 import { buildValidationBundle } from "./validationBundle";
 
@@ -42,16 +42,22 @@ function IssueList({ issues, empty = "未发现问题" }: { issues: Issue[]; emp
 const RATIO_METRICS = new Set([
   "chapter_coverage",
   "event_coverage",
+  "event_dramatization_coverage",
   "critical_event_coverage",
   "must_keep_coverage",
+  "dialogue_retention",
   "source_traceability_coverage",
   "invented_scene_ratio",
 ]);
 const METRIC_LABELS: Record<string, string> = {
   chapter_coverage: "章节覆盖率",
   event_coverage: "事件覆盖率",
+  event_dramatization_coverage: "事件呈现充分率",
   critical_event_coverage: "关键事件覆盖率",
   must_keep_coverage: "必保事件覆盖率",
+  dialogue_retention: "对白保留率",
+  source_dialogue_count: "原文对白数",
+  screenplay_dialogue_count: "剧本对白数",
   source_traceability_coverage: "来源可追溯率",
   invented_scene_ratio: "新增场次比例",
   target_scene_delta: "场次数要求偏差",
@@ -162,7 +168,7 @@ export default function App() {
   const [result, setResult] = useState<GenerationResponse | null>(null);
   const [selectedScene, setSelectedScene] = useState(0);
   const [tab, setTab] = useState<ResultTab>("script");
-  const [loading, setLoading] = useState<"parse" | "generate" | null>(null);
+  const [loading, setLoading] = useState<"parse" | "generate" | "refine" | null>(null);
   const [generationSeconds, setGenerationSeconds] = useState(0);
   const [error, setError] = useState("");
   const [errorDiagnostics, setErrorDiagnostics] = useState<Issue[]>([]);
@@ -178,6 +184,8 @@ export default function App() {
   const [yamlMessage, setYamlMessage] = useState("");
   const [yamlValidating, setYamlValidating] = useState(false);
   const [yamlDirty, setYamlDirty] = useState(false);
+  const [refinementFeedback, setRefinementFeedback] = useState("");
+  const [refinementNotes, setRefinementNotes] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const sourceRevision = useRef(0);
   const yamlRevision = useRef(0);
@@ -245,6 +253,7 @@ export default function App() {
   async function handleParse() {
     if (!novelText.trim()) return setError("请先粘贴或导入小说正文。");
     setLoading("parse"); setError(""); setErrorDiagnostics([]); setBlockedQuality(null); setResult(null);
+    setRefinementNotes([]);
     try {
       setParsed(await parseNovel(novelText));
     } catch (err) {
@@ -260,16 +269,48 @@ export default function App() {
       return setError("七牛 AI 尚无可用模型，请刷新模型列表或使用可靠兜底模式。");
     }
     setLoading("generate"); setError(""); setErrorDiagnostics([]); setBlockedQuality(null); setResult(null);
+    setRefinementNotes([]);
     const requestedRevision = sourceRevision.current;
     try {
       const generated = generationMode === "qiniu"
         ? await generateAI(novelText, title.trim(), selectedQiniuModel, sceneDensity)
         : await generateLocal(novelText, title.trim());
       if (requestedRevision === sourceRevision.current) {
-        setResult(generated); setSelectedScene(0); setTab("script");
+        setResult(generated); setSelectedScene(0); setTab("script"); setRefinementFeedback("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成请求失败。");
+      setErrorDiagnostics(err instanceof ApiError ? (err.payload?.diagnostics as Issue[] | undefined) ?? [] : []);
+      if (err instanceof ApiError && err.payload?.quality_report) {
+        setBlockedQuality(err.payload.quality_report as QualityReport);
+      }
+    } finally { setLoading(null); }
+  }
+
+  async function handleRefine() {
+    if (!result) return;
+    if (result.screenplay.project.generation?.mode !== "qiniu_ai") {
+      return setError("作者反馈改写需要先使用七牛 AI 生成完整剧本。");
+    }
+    if (!refinementFeedback.trim()) {
+      return setError("请先填写希望 AI 修改的意见。");
+    }
+    setLoading("refine"); setError(""); setErrorDiagnostics([]); setBlockedQuality(null); setRefinementNotes([]);
+    try {
+      const refined = await refineAI(
+        result.screenplay,
+        result.source_texts,
+        refinementFeedback.trim(),
+        selectedQiniuModel || result.screenplay.project.generation?.model || "",
+        sceneDensity,
+      );
+      setResult(refined);
+      setRefinementNotes(refined.refinement_notes);
+      setRefinementFeedback("");
+      setSelectedScene(0);
+      setTab("script");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "反馈改写请求失败。");
       setErrorDiagnostics(err instanceof ApiError ? (err.payload?.diagnostics as Issue[] | undefined) ?? [] : []);
       if (err instanceof ApiError && err.payload?.quality_report) {
         setBlockedQuality(err.payload.quality_report as QualityReport);
@@ -282,7 +323,7 @@ export default function App() {
     sourceRevision.current += 1;
     const importedText = await file.text();
     sourceRevision.current += 1;
-    setNovelText(importedText); setParsed(null); setResult(null); setBlockedQuality(null); setError(""); setErrorDiagnostics([]);
+    setNovelText(importedText); setParsed(null); setResult(null); setBlockedQuality(null); setError(""); setErrorDiagnostics([]); setRefinementNotes([]); setRefinementFeedback("");
   }
 
   function loadSample() {
@@ -294,6 +335,8 @@ export default function App() {
     setBlockedQuality(null);
     setError("");
     setErrorDiagnostics([]);
+    setRefinementNotes([]);
+    setRefinementFeedback("");
   }
 
   function selectGenerationMode(mode: GenerationMode) {
@@ -303,6 +346,7 @@ export default function App() {
     setBlockedQuality(null);
     setError("");
     setErrorDiagnostics([]);
+    setRefinementNotes([]);
   }
 
   function downloadYaml() {
@@ -425,7 +469,7 @@ export default function App() {
           <div className="panel source-panel">
             <div className="panel-head"><div><span className="panel-number">01</span><h2>小说原文</h2></div><div className="panel-actions"><button className="text-button" disabled={!!loading} onClick={loadSample}>加载演示小说</button><button className="text-button" disabled={!!loading} onClick={() => fileInput.current?.click()}>导入 .txt</button></div></div>
             <input ref={fileInput} type="file" accept=".txt,text/plain" hidden disabled={!!loading} onChange={(e) => importFile(e.target.files?.[0])} />
-            <textarea aria-label="小说原文" disabled={!!loading} value={novelText} onChange={(e) => { sourceRevision.current += 1; setNovelText(e.target.value); setParsed(null); setResult(null); setBlockedQuality(null); }} placeholder={"粘贴小说正文，章节标题示例：\n\n第一章 雨夜\n正文……\n\n第二章 来信\n正文……\n\n第三章 真相\n正文……"} />
+            <textarea aria-label="小说原文" disabled={!!loading} value={novelText} onChange={(e) => { sourceRevision.current += 1; setNovelText(e.target.value); setParsed(null); setResult(null); setBlockedQuality(null); setRefinementNotes([]); setRefinementFeedback(""); }} placeholder={"粘贴小说正文，章节标题示例：\n\n第一章 雨夜\n正文……\n\n第二章 来信\n正文……\n\n第三章 真相\n正文……"} />
             <div className="source-footer"><span>{novelText.length.toLocaleString()} / 100,000 字符</span><button className="primary" disabled={!!loading} onClick={handleParse}>{loading === "parse" ? "正在解析…" : "解析并检查"}</button></div>
           </div>
 
@@ -444,6 +488,7 @@ export default function App() {
         </section>
 
         {loading === "generate" && <div role="status" className="generation-progress"><strong>{generationMode === "qiniu" ? `七牛 AI 正在生成 · ${generationSeconds} 秒` : "可靠兜底正在生成"}</strong><span>{generationMode === "qiniu" ? generationProgress : "正在构建可追溯骨架。"}</span></div>}
+        {loading === "refine" && <div role="status" className="generation-progress"><strong>七牛 AI 正在按反馈改写</strong><span>正在结合当前 YAML、原文证据和作者意见生成新版剧本。</span></div>}
         {error && <><div role="alert" className="error-banner"><strong>请求未完成</strong><span>{error}</span></div>{errorDiagnostics.length > 0 && <section className="generation-diagnostics panel"><div className="section-intro"><h2>问题定位与处理建议</h2><p>以下信息来自本次生成结果，用于定位具体场次、人物、剧情或结构字段；通常无需修改原小说。</p></div><IssueList issues={errorDiagnostics} /></section>}</>}
         {blockedQuality && <section className="blocked-quality panel"><div className="gate block"><span>!</span><div><strong>质量门禁阻断</strong><p>后端拒绝返回未通过校验的生成结果，以下为真实诊断。</p></div></div><div className="metric-grid">{Object.entries(blockedQuality.metrics).map(([name, value]) => <Metric name={name} value={value} key={name} />)}</div><IssueList issues={blockedQuality.issues} /></section>}
 
@@ -451,6 +496,16 @@ export default function App() {
           <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div><div className="download-actions"><button className="download secondary" onClick={() => void downloadSchema()}>下载 YAML Schema</button>{result && <><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></>}</div></div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
             <div className="result-guide"><div><strong>场次与证据</strong><span>阅读剧本，并查看每场依据的原文摘录。</span></div><div><strong>故事要素</strong><span>检查 AI 识别的人物、目标和地点是否准确。</span></div><div><strong>事件覆盖</strong><span>确认三章关键情节没有在改编中遗漏。</span></div><div><strong>交付检查</strong><span>确认 YAML、证据链和覆盖率达到下载条件。</span></div></div>
+            <section className="refine-panel">
+              <div>
+                <span>AUTHOR FEEDBACK</span>
+                <h3>作者反馈改写</h3>
+                <p>{result.screenplay.project.generation?.mode === "qiniu_ai" ? "写下不满意的地方，例如“保留更多对白”“第三场节奏放慢”“减少旁白”，系统会请求七牛 AI 生成新版 YAML。" : "当前结果是可靠兜底骨架。请先使用七牛 AI 生成完整剧本，再进行反馈改写。"}</p>
+                {refinementNotes.length > 0 && <ul>{refinementNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+              </div>
+              <label>修改意见<textarea aria-label="作者修改意见" disabled={!!loading || result.screenplay.project.generation?.mode !== "qiniu_ai"} value={refinementFeedback} onChange={(event) => setRefinementFeedback(event.target.value)} placeholder="例如：请把第一章被压缩掉的对白补回同一场次，并让动作描写更像可拍摄剧本。" /></label>
+              <button className="primary" disabled={!!loading || result.screenplay.project.generation?.mode !== "qiniu_ai" || !refinementFeedback.trim()} onClick={() => void handleRefine()}>{loading === "refine" ? "正在改写…" : "发送给七牛 AI 改写"}</button>
+            </section>
             <nav className="tabs" aria-label="结果视图">
               <button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>场次与证据 <b>{scenes.length}</b></button>
               <button className={tab === "bible" ? "active" : ""} onClick={() => setTab("bible")}>故事要素 <b>{characters.length + locations.length}</b></button>

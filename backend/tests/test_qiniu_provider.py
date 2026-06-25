@@ -6,7 +6,12 @@ import json
 import httpx
 import pytest
 
-from backend.pipeline.ai_assisted import _evidence_candidates, _prompt, generate_qiniu_screenplay
+from backend.pipeline.ai_assisted import (
+    _evidence_candidates,
+    _prompt,
+    generate_qiniu_screenplay,
+    refine_qiniu_screenplay,
+)
 from backend.pipeline.local_rules import generate_local_screenplay
 from backend.providers import QiniuAIError, QiniuClient, QiniuSettings
 from scripts.validate_example import validate_screenplay
@@ -20,6 +25,17 @@ NOVEL = """第一章 雨夜
 
 第三章 真相
 林夏找到录音，并决定公开真相。
+"""
+
+DIALOGUE_NOVEL = """第一章 雨夜
+林夏说：“我要找到那封信。”
+站长问：“你确定要现在进去吗？”
+
+第二章 旧信
+林夏低声说：“我不会再逃了。”
+
+第三章 真相
+天亮时，她说：“真相应该被所有人知道。”
 """
 
 
@@ -109,6 +125,8 @@ def test_ai_prompt_requires_explicit_event_dramatization() -> None:
     assert "本次要求总场次数为 5 到 9" in messages[1]["content"]
     assert "每个来源事件都必须在关联场次的动作或对白中被明确演出来" in messages[1]["content"]
     assert "不能只填写 source_event_numbers 来声称覆盖" in messages[1]["content"]
+    assert "原文对白清单" in messages[1]["content"]
+    assert "不要只挑代表句" in messages[0]["content"]
     assert "输出语言必须与原文一致" in messages[0]["content"]
     assert "中文原文必须使用中文人物名" in messages[0]["content"]
 
@@ -214,6 +232,63 @@ def test_full_ai_adaptation_extracts_structure_and_passes_quality_gate() -> None
     serialized = json.dumps(result.screenplay, ensure_ascii=False)
     assert serialized.count("qiniu-ai") == 1
     assert "七牛 AI 根据来源事件" not in serialized
+
+
+def test_full_ai_adaptation_auto_retains_source_dialogue_omitted_by_model() -> None:
+    result = generate_qiniu_screenplay(
+        DIALOGUE_NOVEL,
+        "雨夜来信",
+        client=FakeQiniuClient(),
+    )
+
+    dialogue_beats = [
+        beat
+        for scene in result.screenplay["screenplay"]["scenes"]
+        for beat in scene["beats"]
+        if beat["type"] == "dialogue"
+    ]
+    dialogue_texts = {beat["text"] for beat in dialogue_beats}
+    assert "我要找到那封信。" in dialogue_texts
+    assert "你确定要现在进去吗？" in dialogue_texts
+    assert "我不会再逃了。" in dialogue_texts
+    assert "真相应该被所有人知道。" in dialogue_texts
+    assert result.screenplay["story_bible"]["characters"][-1]["name"] == "未确认说话人"
+    assert any(beat.get("parenthetical") == "原文对白，待确认说话人" for beat in dialogue_beats)
+    assert "ai_source_dialogue_auto_retained" in {issue["code"] for issue in result.issues}
+    report = validate_screenplay(result.screenplay, result.source_texts)
+    assert report["passed"] is True
+    assert report["metrics"]["dialogue_retention"] == 1.0
+    assert report["metrics"]["source_dialogue_count"] == 4
+
+
+def test_refine_qiniu_screenplay_returns_revision_notes_and_new_yaml() -> None:
+    current = generate_qiniu_screenplay(NOVEL, "雨夜来信", client=FakeQiniuClient())
+
+    class RefinementClient(FakeQiniuClient):
+        def complete_json(self, messages: list[dict[str, str]]) -> dict:
+            assert "作者修改意见" in messages[1]["content"]
+            assert "保留更多车站动作" in messages[1]["content"]
+            result = full_adaptation()
+            result["scenes"][0]["beats"][0]["text"] = "林夏停在车站门口，先观察雨水和旧信的位置。"
+            return {
+                "revision_notes": ["已放慢第一场节奏，并加强车站动作。"],
+                "adaptation": result,
+            }
+
+    refined, notes = refine_qiniu_screenplay(
+        current.screenplay,
+        current.source_texts,
+        "保留更多车站动作",
+        scene_density="concise",
+        client=RefinementClient(),
+    )
+
+    assert notes == ["已放慢第一场节奏，并加强车站动作。"]
+    assert refined.screenplay["screenplay"]["scenes"][0]["beats"][0]["text"] == (
+        "林夏停在车站门口，先观察雨水和旧信的位置。"
+    )
+    assert refined.issues[0]["code"] == "ai_refinement_review_required"
+    assert validate_screenplay(refined.screenplay, refined.source_texts)["passed"] is True
 
 
 def test_full_ai_adaptation_deduplicates_character_aliases() -> None:
@@ -365,7 +440,12 @@ def test_full_ai_adaptation_recovers_unmapped_event_with_same_chapter_scene() ->
     )
     assert "林夏确认旧信来自父亲" in issue["message"]
     assert issue["related_ids"] == ["event_004", "scene_001"]
-    assert validate_screenplay(result.screenplay, result.source_texts)["passed"] is True
+    report = validate_screenplay(result.screenplay, result.source_texts)
+    assert report["passed"] is True
+    assert report["metrics"]["event_dramatization_coverage"] < 1
+    assert "event_dramatization_review_required" in {
+        issue["code"] for issue in report["issues"]
+    }
 
 
 def test_full_ai_adaptation_reports_ambiguous_character_with_scene_and_plot_context() -> None:
