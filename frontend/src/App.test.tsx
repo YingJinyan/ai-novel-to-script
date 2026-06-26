@@ -155,7 +155,13 @@ describe("workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "使用可靠兜底生成骨架" }));
 
     await screen.findByText("来源证据");
-    expect(screen.getByText("可靠兜底骨架")).toBeInTheDocument();
+    expect(screen.getByText("5 分钟把三章小说变成可核查剧本初稿。")).toBeInTheDocument();
+    expect(screen.getByText("不再盲信 AI")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "交付总览" })).toBeInTheDocument();
+    expect(screen.getByText("交付状态")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "原文到剧本对照" })).toBeInTheDocument();
+    expect(screen.getByText("原文证据摘录")).toBeInTheDocument();
+    expect(screen.getAllByText("可靠兜底骨架").length).toBeGreaterThan(0);
     expect(screen.getByText("“甲”")).toBeInTheDocument();
     expect(screen.getByText("检查 AI 识别的人物、目标和地点是否准确。")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /交付检查/ }));

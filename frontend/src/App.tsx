@@ -115,6 +115,42 @@ function Metric({ name, value }: { name: string; value: number }) {
   );
 }
 
+function metricValue(report: QualityReport | null, name: string, fallback = "待校验") {
+  const value = report?.metrics?.[name];
+  if (typeof value !== "number") return fallback;
+  return RATIO_METRICS.has(name) ? `${Math.round(value * 100)}%` : String(value);
+}
+
+function DeliverySummary({
+  result,
+  report,
+  sceneCount,
+  modeLabel,
+}: {
+  result: GenerationResponse;
+  report: QualityReport | null;
+  sceneCount: number;
+  modeLabel: string;
+}) {
+  const gateLabel = report ? report.passed ? "可交付" : "需处理" : "待校验";
+  const gateText = report
+    ? report.passed
+      ? "结构、证据与覆盖已满足下载条件。"
+      : "存在阻断项，请先查看交付检查。"
+    : "YAML 修改后需要重新校验。";
+  return (
+    <section className="delivery-summary" aria-label="交付总览">
+      <article className={report?.passed ? "summary-pass" : report ? "summary-block" : "summary-pending"}>
+        <span>交付状态</span><strong>{gateLabel}</strong><small>{gateText}</small>
+      </article>
+      <article><span>生成路径</span><strong>{modeLabel}</strong><small>{result.screenplay.project.generation?.mode === "qiniu_ai" ? "真实 AI 改编，可继续反馈改写。" : "稳定兜底，只展示可追溯机制。"}</small></article>
+      <article><span>事件呈现</span><strong>{metricValue(report, "event_dramatization_coverage")}</strong><small>不只看事件 ID，还检查动作/对白是否真的写出。</small></article>
+      <article><span>对白保留</span><strong>{metricValue(report, "dialogue_retention")}</strong><small>{metricValue(report, "source_dialogue_count", "0")} 条原文对白进入保留检查。</small></article>
+      <article><span>交付规模</span><strong>{sceneCount} 场</strong><small>{result.screenplay.story_bible.characters.length} 人物 · {result.screenplay.narrative_events.length} 事件</small></article>
+    </section>
+  );
+}
+
 function SceneDetail({ scene, result }: { scene: Scene; result: GenerationResponse }) {
   const locations = result.screenplay.story_bible?.locations ?? [];
   const characters = result.screenplay.story_bible?.characters ?? [];
@@ -125,12 +161,20 @@ function SceneDetail({ scene, result }: { scene: Scene; result: GenerationRespon
   const chapters = result.screenplay.source.chapters.filter((chapter) =>
     scene.traceability.source_chapter_ids.includes(chapter.id),
   );
+  const evidencePreview = events.map((event) => event.evidence.quote).join("\n\n");
+  const screenplayPreview = scene.beats
+    .map((beat) => `${beat.type.toUpperCase()} ${beat.text}`)
+    .join("\n");
 
   return (
     <article className="scene-detail">
       <div className="scene-kicker">场次 {String(scene.order).padStart(2, "0")} · {scene.id}</div>
       <h2>{scene.heading.int_ext} · {location} · {scene.heading.time_of_day}</h2>
       <p className="purpose">{scene.purpose}</p>
+      <section className="scene-compare" aria-label="原文到剧本对照">
+        <div><span>原文证据摘录</span><p>{evidencePreview || "该场次暂无来源摘录。"}</p></div>
+        <div><span>改编后节拍</span><p>{screenplayPreview || "该场次暂无剧本节拍。"}</p></div>
+      </section>
       <div className="beat-list">
         {scene.beats.map((beat, index) => (
           <div className="beat" key={index}>
@@ -461,8 +505,14 @@ export default function App() {
 
       <main>
         <section className="intro">
-          <div><p className="eyebrow">NOVEL → SCREENPLAY</p><h1>让 AI 改编的每一个场次，都有出处。</h1><p>导入至少 3 章小说，自动提取人物、地点与事件，生成可验证、可编辑的结构化剧本。</p></div>
+          <div><p className="eyebrow">NOVEL → SCREENPLAY</p><h1>5 分钟把三章小说变成可核查剧本初稿。</h1><p>每场有出处、剧情不遗漏、通过质量门禁才可下载；比普通 AI 对话更适合小说作者继续打磨。</p></div>
           <div className="steps"><span className={parsed ? "done" : "active"}>01 输入检查</span><span className={result ? "done" : parsed?.eligible ? "active" : ""}>02 AI 剧本化</span><span className={result ? "active" : ""}>03 溯源审阅</span></div>
+        </section>
+
+        <section className="value-strip" aria-label="产品核心价值">
+          <article><span>痛点 01</span><strong>不再盲信 AI</strong><p>每个场次都能回看原文证据、章节和字符位置，方便作者判断改编依据。</p></article>
+          <article><span>痛点 02</span><strong>对白尽量不丢</strong><p>系统检查原文对白保留率，AI 漏掉时会补入相近场次并提示复核说话人。</p></article>
+          <article><span>痛点 03</span><strong>结果可交付</strong><p>YAML Schema、事件呈现、证据链和质量门禁一起约束输出，适合评审复现。</p></article>
         </section>
 
         <section className="import-grid">
@@ -496,6 +546,7 @@ export default function App() {
           <div className="workspace-head"><div><span className="panel-number">03</span><div><h2>剧本审阅工作台</h2><p>{result ? result.screenplay.project.title : "生成后可审阅场次、证据与质量门禁"}</p>{result && <div className="result-provenance"><strong>{resultModeLabel}</strong><span>{resultCounts}</span></div>}</div></div><div className="download-actions"><button className="download secondary" onClick={() => void downloadSchema()}>下载 YAML Schema</button>{result && <><button className="download secondary" onClick={downloadValidationBundle}>下载验证包</button><button className="download" disabled={!activeQualityReport?.passed} onClick={downloadYaml}>下载已通过剧本 YAML</button></>}</div></div>
           {!result ? <div className="workspace-empty"><span>SCREENPLAY / TRACE / QUALITY</span><h2>尚未生成剧本</h2><p>完成输入检查并生成后，工作台将展示真实接口返回的数据。</p></div> : <>
             <div className="result-guide"><div><strong>场次与证据</strong><span>阅读剧本，并查看每场依据的原文摘录。</span></div><div><strong>故事要素</strong><span>检查 AI 识别的人物、目标和地点是否准确。</span></div><div><strong>事件覆盖</strong><span>确认三章关键情节没有在改编中遗漏。</span></div><div><strong>交付检查</strong><span>确认 YAML、证据链和覆盖率达到下载条件。</span></div></div>
+            <DeliverySummary result={result} report={activeQualityReport} sceneCount={scenes.length} modeLabel={resultModeLabel} />
             <section className="refine-panel">
               <div>
                 <span>AUTHOR FEEDBACK</span>
